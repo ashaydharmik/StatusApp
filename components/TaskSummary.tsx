@@ -130,29 +130,29 @@ function EditableSection({
     <div className="animate-fade-in space-y-2">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <div className={`w-7 h-7 rounded-lg flex items-center justify-center ${iconBg}`}>
+          <div className={`w-6 h-6 sm:w-7 sm:h-7 rounded-lg flex items-center justify-center ${iconBg}`}>
             {icon}
           </div>
           <span className={`section-badge ${badgeClass}`}>{title}</span>
-          <span className="text-xs text-slate-500 font-medium ml-1">
+          <span className="text-[11px] sm:text-xs text-slate-500 font-medium ml-1">
             {items.length} {items.length === 1 ? "item" : "items"}
           </span>
         </div>
 
         <button
           onClick={() => setIsAdding(true)}
-          className="flex items-center gap-1 text-xs text-indigo-400 hover:text-indigo-300 transition-colors px-2 py-1 rounded-lg hover:bg-white/5 font-medium"
+          className="flex items-center gap-1 text-xs text-indigo-400 hover:text-indigo-300 transition-colors px-2 py-1 rounded-lg hover:bg-white/5 font-semibold active:bg-white/10"
         >
           <Plus className="w-3.5 h-3.5" />
           Add Item
         </button>
       </div>
 
-      <ol className="space-y-2 pl-1">
+      <ol className="space-y-2 pl-0.5">
         {items.map((item, i) => (
           <li
             key={i}
-            className="group relative flex items-start gap-2.5 p-2 rounded-xl hover:bg-white/[0.04] transition-all border border-transparent hover:border-white/10"
+            className="group relative flex items-start gap-2 sm:gap-2.5 p-2 rounded-xl hover:bg-white/[0.04] transition-all border border-transparent hover:border-white/10"
           >
             {/* Automatic Serial Index Badge */}
             <span
@@ -172,45 +172,45 @@ function EditableSection({
                     if (e.key === "Enter") handleSaveEdit(i);
                     if (e.key === "Escape") setEditingIndex(null);
                   }}
-                  className="flex-1 bg-black/40 border border-indigo-500/50 rounded-lg px-2.5 py-1 text-xs text-slate-100 outline-none"
+                  className="flex-1 bg-black/50 border border-indigo-500/60 rounded-lg px-2.5 py-1.5 text-base sm:text-xs text-slate-100 outline-none"
                 />
                 <button
                   onClick={() => handleSaveEdit(i)}
-                  className="p-1 rounded bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30"
+                  className="p-1.5 rounded-lg bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30"
                   title="Save"
                 >
-                  <Check className="w-3.5 h-3.5" />
+                  <Check className="w-4 h-4 sm:w-3.5 sm:h-3.5" />
                 </button>
                 <button
                   onClick={() => setEditingIndex(null)}
-                  className="p-1 rounded bg-red-500/20 text-red-400 hover:bg-red-500/30"
+                  className="p-1.5 rounded-lg bg-red-500/20 text-red-400 hover:bg-red-500/30"
                   title="Cancel"
                 >
-                  <X className="w-3.5 h-3.5" />
+                  <X className="w-4 h-4 sm:w-3.5 sm:h-3.5" />
                 </button>
               </div>
             ) : (
               <div className="flex-1 flex items-start justify-between gap-2">
                 <span
                   onClick={() => handleStartEdit(i, item)}
-                  className="text-sm text-slate-300 leading-relaxed cursor-pointer hover:text-slate-100 transition-colors"
+                  className="text-xs sm:text-sm text-slate-300 leading-relaxed cursor-pointer hover:text-slate-100 transition-colors"
                   title="Click to edit item"
                 >
                   {item}
                 </span>
 
-                {/* Inline item action controls */}
-                <div className="opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
+                {/* Inline item action controls - visible on touch devices and hover on desktop */}
+                <div className="opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity flex items-center gap-0.5 flex-shrink-0">
                   <button
                     onClick={() => handleStartEdit(i, item)}
-                    className="p-1 rounded text-slate-400 hover:text-indigo-300 hover:bg-white/10"
+                    className="p-1.5 rounded-lg text-slate-400 hover:text-indigo-300 hover:bg-white/10 active:bg-white/20"
                     title="Edit item"
                   >
                     <Edit3 className="w-3.5 h-3.5" />
                   </button>
                   <button
                     onClick={() => onDeleteItem(sectionKey, i)}
-                    className="p-1 rounded text-slate-400 hover:text-red-400 hover:bg-red-500/10"
+                    className="p-1.5 rounded-lg text-slate-400 hover:text-red-400 hover:bg-red-500/10 active:bg-red-500/20"
                     title="Delete item (auto serial re-numbers list)"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
@@ -235,9 +235,9 @@ function EditableSection({
             }}
             placeholder={`Enter new ${title.toLowerCase()} item...`}
             autoFocus
-            className="flex-1 bg-black/40 border border-indigo-500/50 rounded-lg px-3 py-1.5 text-xs text-slate-100 placeholder-slate-500 outline-none"
+            className="flex-1 bg-black/50 border border-indigo-500/60 rounded-lg px-3 py-2 text-base sm:text-xs text-slate-100 placeholder-slate-500 outline-none"
           />
-          <button onClick={handleSaveNew} className="btn btn-primary rounded-lg text-xs px-3 py-1.5">
+          <button onClick={handleSaveNew} className="btn btn-primary rounded-lg text-xs px-3 py-2">
             Add
           </button>
           <button onClick={() => setIsAdding(false)} className="p-1.5 rounded text-slate-400 hover:text-slate-200">
@@ -471,10 +471,11 @@ export default function TaskSummary({
 
   return (
     <div className="flex flex-col h-full">
-      {/* Card header */}
-      <div className="flex items-center justify-between mb-4">
+      {/* Card header: responsive flex layout */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
+        {/* Title */}
         <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-lg bg-purple-600/20 flex items-center justify-center border border-purple-500/30">
+          <div className="w-8 h-8 rounded-lg bg-purple-600/20 flex items-center justify-center border border-purple-500/30 flex-shrink-0">
             <FileText className="w-4 h-4 text-purple-400" />
           </div>
           <div>
@@ -493,9 +494,9 @@ export default function TaskSummary({
 
         {/* View Mode Toggle & Top Actions */}
         {currentSummary && !isEmpty && (
-          <div className="flex items-center gap-1.5">
+          <div className="flex flex-wrap items-center justify-between sm:justify-end gap-1.5 w-full sm:w-auto pt-2 sm:pt-0 border-t sm:border-t-0 border-white/10">
             {hasDevelopers && (
-              <div className="flex items-center bg-white/5 border border-white/10 rounded-lg p-0.5 mr-1">
+              <div className="flex items-center bg-white/5 border border-white/10 rounded-lg p-0.5">
                 <button
                   onClick={() => setViewMode("combined")}
                   className={`flex items-center gap-1 text-[11px] font-medium px-2 py-1 rounded-md transition-all ${
@@ -523,65 +524,67 @@ export default function TaskSummary({
               </div>
             )}
 
-            <button
-              onClick={handleUndo}
-              disabled={historyIndex <= 0}
-              title={historyIndex > 0 ? `Undo (Step ${historyIndex} of ${history.length - 1})` : "Undo (no previous steps)"}
-              className={`p-1.5 rounded-lg border border-white/10 transition-all ${
-                historyIndex > 0
-                  ? "text-indigo-300 hover:text-white hover:bg-indigo-600/30 border-indigo-500/40 shadow-sm"
-                  : "text-slate-600 opacity-40 cursor-not-allowed"
-              }`}
-            >
-              <RotateCcw className="w-3.5 h-3.5" />
-            </button>
-            <button
-              onClick={handleRedo}
-              disabled={historyIndex >= history.length - 1}
-              title={historyIndex < history.length - 1 ? "Redo" : "Redo (no next steps)"}
-              className={`p-1.5 rounded-lg border border-white/10 transition-all ${
-                historyIndex < history.length - 1
-                  ? "text-indigo-300 hover:text-white hover:bg-indigo-600/30 border-indigo-500/40 shadow-sm"
-                  : "text-slate-600 opacity-40 cursor-not-allowed"
-              }`}
-            >
-              <RotateCw className="w-3.5 h-3.5" />
-            </button>
+            <div className="flex items-center gap-1.5 ml-auto sm:ml-0">
+              <button
+                onClick={handleUndo}
+                disabled={historyIndex <= 0}
+                title={historyIndex > 0 ? `Undo (Step ${historyIndex} of ${history.length - 1})` : "Undo"}
+                className={`p-1.5 rounded-lg border border-white/10 transition-all ${
+                  historyIndex > 0
+                    ? "text-indigo-300 hover:text-white hover:bg-indigo-600/30 border-indigo-500/40 shadow-sm"
+                    : "text-slate-600 opacity-40 cursor-not-allowed"
+                }`}
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+              </button>
+              <button
+                onClick={handleRedo}
+                disabled={historyIndex >= history.length - 1}
+                title={historyIndex < history.length - 1 ? "Redo" : "Redo"}
+                className={`p-1.5 rounded-lg border border-white/10 transition-all ${
+                  historyIndex < history.length - 1
+                    ? "text-indigo-300 hover:text-white hover:bg-indigo-600/30 border-indigo-500/40 shadow-sm"
+                    : "text-slate-600 opacity-40 cursor-not-allowed"
+                }`}
+              >
+                <RotateCw className="w-3.5 h-3.5" />
+              </button>
 
-            <button
-              onClick={onRegenerate}
-              title="Regenerate verbatim summary"
-              className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 border border-white/10 transition-all"
-            >
-              <RefreshCw className="w-3.5 h-3.5" />
-            </button>
+              <button
+                onClick={onRegenerate}
+                title="Regenerate verbatim summary"
+                className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 border border-white/10 transition-all"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+              </button>
 
-            <button
-              onClick={handleCopy}
-              className={`btn rounded-xl text-xs px-3 py-1.5 transition-all ${
-                copied
-                  ? "bg-emerald-600/20 text-emerald-400 border border-emerald-500/30"
-                  : "btn-primary"
-              }`}
-            >
-              {copied ? (
-                <>
-                  <Check className="w-3.5 h-3.5" />
-                  Copied!
-                </>
-              ) : (
-                <>
-                  <Copy className="w-3.5 h-3.5" />
-                  Copy
-                </>
-              )}
-            </button>
+              <button
+                onClick={handleCopy}
+                className={`btn rounded-xl text-xs px-3 py-1.5 transition-all ${
+                  copied
+                    ? "bg-emerald-600/20 text-emerald-400 border border-emerald-500/30"
+                    : "btn-primary"
+                }`}
+              >
+                {copied ? (
+                  <>
+                    <Check className="w-3.5 h-3.5" />
+                    Copied!
+                  </>
+                ) : (
+                  <>
+                    <Copy className="w-3.5 h-3.5" />
+                    Copy
+                  </>
+                )}
+              </button>
+            </div>
           </div>
         )}
       </div>
 
       {/* Main Content Area */}
-      <div className="flex-1 min-h-0 overflow-y-auto rounded-xl bg-white/[0.03] border border-white/10 p-4 sm:p-5 flex flex-col justify-between gap-6">
+      <div className="flex-1 min-h-0 overflow-y-auto rounded-xl bg-white/[0.03] border border-white/10 p-3.5 sm:p-5 flex flex-col justify-between gap-6">
         {/* Loading state */}
         {isLoading && <LoadingSkeleton />}
 
@@ -640,19 +643,19 @@ export default function TaskSummary({
                 {currentSummary.developers.map((dev, dIdx) => (
                   <div
                     key={dIdx}
-                    className="p-4 rounded-xl bg-white/[0.02] border border-white/10 space-y-4"
+                    className="p-3.5 sm:p-4 rounded-xl bg-white/[0.02] border border-white/10 space-y-3.5"
                   >
                     <div className="flex items-center gap-2 pb-2 border-b border-white/5">
-                      <div className="w-6 h-6 rounded-md bg-indigo-500/20 flex items-center justify-center text-indigo-400">
+                      <div className="w-5 h-5 sm:w-6 sm:h-6 rounded-md bg-indigo-500/20 flex items-center justify-center text-indigo-400">
                         <User className="w-3.5 h-3.5" />
                       </div>
-                      <h3 className="text-sm font-bold text-slate-100">{dev.developerName}</h3>
+                      <h3 className="text-xs sm:text-sm font-bold text-slate-100">{dev.developerName}</h3>
                     </div>
 
                     {/* Developer Completed */}
                     {dev.completed.length > 0 && (
-                      <div className="space-y-1.5 pl-2">
-                        <div className="flex items-center gap-2 mb-2">
+                      <div className="space-y-1.5 pl-1">
+                        <div className="flex items-center gap-2 mb-1.5">
                           <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
                           <span className="text-xs font-semibold text-emerald-400">Completed ({dev.completed.length})</span>
                         </div>
@@ -666,8 +669,8 @@ export default function TaskSummary({
 
                     {/* Developer In Progress */}
                     {dev.inProgress.length > 0 && (
-                      <div className="space-y-1.5 pl-2">
-                        <div className="flex items-center gap-2 mb-2">
+                      <div className="space-y-1.5 pl-1">
+                        <div className="flex items-center gap-2 mb-1.5">
                           <Clock className="w-3.5 h-3.5 text-amber-400" />
                           <span className="text-xs font-semibold text-amber-400">In Progress ({dev.inProgress.length})</span>
                         </div>
@@ -681,8 +684,8 @@ export default function TaskSummary({
 
                     {/* Developer PRs */}
                     {dev.prs.length > 0 && (
-                      <div className="space-y-1.5 pl-2">
-                        <div className="flex items-center gap-2 mb-2">
+                      <div className="space-y-1.5 pl-1">
+                        <div className="flex items-center gap-2 mb-1.5">
                           <GitPullRequest className="w-3.5 h-3.5 text-blue-400" />
                           <span className="text-xs font-semibold text-blue-400">PR's ({dev.prs.length})</span>
                         </div>
@@ -750,7 +753,7 @@ export default function TaskSummary({
           <div className="mt-4 pt-4 border-t border-white/10 space-y-3">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <div className="w-6 h-6 rounded-lg bg-gradient-to-tr from-indigo-500 to-purple-500 flex items-center justify-center text-white">
+                <div className="w-6 h-6 rounded-lg bg-gradient-to-tr from-indigo-500 to-purple-500 flex items-center justify-center text-white flex-shrink-0">
                   <Bot className="w-3.5 h-3.5" />
                 </div>
                 <span className="text-xs font-bold text-slate-200">AI Summary Assistant</span>
@@ -758,8 +761,8 @@ export default function TaskSummary({
               <span className="text-[10px] text-slate-500">On-Demand Modifications</span>
             </div>
 
-            {/* Quick Action Chips */}
-            <div className="flex flex-wrap gap-1.5">
+            {/* Quick Action Chips: touch-scrollable on mobile */}
+            <div className="flex overflow-x-auto pb-1 sm:pb-0 gap-1.5 no-scrollbar">
               {[
                 { label: "✏️ Rephrase Professionally", prompt: "Rephrase task updates to sound more technical and professional" },
                 { label: "⚡ Make Concise", prompt: "Make task descriptions shorter and more concise" },
@@ -770,7 +773,7 @@ export default function TaskSummary({
                   key={chip.label}
                   disabled={isAssistantWorking}
                   onClick={() => handleRunAssistant(chip.prompt)}
-                  className="text-xs text-slate-300 bg-white/5 hover:bg-indigo-600/20 hover:text-indigo-200 border border-white/10 hover:border-indigo-500/30 rounded-lg px-2.5 py-1 transition-all flex items-center gap-1 disabled:opacity-50"
+                  className="text-xs text-slate-300 bg-white/5 hover:bg-indigo-600/20 hover:text-indigo-200 border border-white/10 hover:border-indigo-500/30 rounded-lg px-2.5 py-1.5 transition-all flex items-center gap-1 whitespace-nowrap flex-shrink-0 disabled:opacity-50"
                 >
                   {chip.label}
                 </button>
@@ -786,19 +789,19 @@ export default function TaskSummary({
                 onKeyDown={(e) => {
                   if (e.key === "Enter") handleRunAssistant();
                 }}
-                placeholder="Ask AI Assistant to modify or rephrase (e.g., 'Move 2nd pr to in progress', 'Rephrase item 1')..."
-                className="w-full bg-black/40 border border-white/10 focus:border-indigo-500/60 rounded-xl pl-3 py-2 pr-10 text-xs text-slate-200 placeholder-slate-500 outline-none transition-all"
+                placeholder="Ask AI Assistant (e.g. 'move 2nd pr to in progress')..."
+                className="w-full bg-black/50 border border-white/10 focus:border-indigo-500/60 rounded-xl pl-3 py-2.5 pr-10 text-base sm:text-xs text-slate-200 placeholder-slate-500 outline-none transition-all"
                 disabled={isAssistantWorking}
               />
               <button
                 onClick={() => handleRunAssistant()}
                 disabled={!assistantPrompt.trim() || isAssistantWorking}
-                className="absolute right-1.5 p-1.5 text-indigo-400 hover:text-indigo-200 disabled:opacity-30 disabled:hover:text-indigo-400 transition-colors"
+                className="absolute right-1.5 p-2 text-indigo-400 hover:text-indigo-200 disabled:opacity-30 disabled:hover:text-indigo-400 transition-colors"
               >
                 {isAssistantWorking ? (
-                  <span className="w-3.5 h-3.5 border-2 border-indigo-400/30 border-t-indigo-400 rounded-full animate-spin block" />
+                  <span className="w-4 h-4 border-2 border-indigo-400/30 border-t-indigo-400 rounded-full animate-spin block" />
                 ) : (
-                  <Send className="w-3.5 h-3.5" />
+                  <Send className="w-4 h-4 sm:w-3.5 sm:h-3.5" />
                 )}
               </button>
             </div>

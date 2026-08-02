@@ -8,29 +8,21 @@ interface TaskInputProps {
   isLoading: boolean;
 }
 
-const EXAMPLE_TEXT = `Task Update:
+const EXAMPLE_TEXT = `Sravan Kumar Reddy Kummita
+Task update:
 1. Worked on Succession plan IDP
 2. Updated mapping in Print approved letters API
 
-PR same as updates
+In-progress:
+Appraisal recommendation confirm flow implementation
 
-Task Update:
-Integrated the Save Or Update Employee Appraisal Recommendation API.
-Integrated the Save Or Update EmpAppraisal Recommendation Rating Bulk API.
-Implemented Update Recommendation data prefilling.
-Implemented the Amend Increment flow.
-Implemented the Amend Promotion flow.
-In Progress:
-End-to-end testing and issue fixes for the Update Recommendation flow in the Amend Increment and Amend Promotion
+PR Changes same as above
 
-Task Update:
-1. Integrated the onboarding tasks grid apis
-2. Updated the labels of the onboarding tasks grid
-3. Integrated the Employee Onboarding listing apis
-4. Integrated the Employee Onboarding grid apis
-5. Updated the mapping for Employee Onboarding grid table
-
-PR- employee Onboarding task UI + api`;
+Ashay Dharmik
+	1.	KPI excel changes
+	2.	Added new filed in KPI form and excel
+	3.	Fixed mapping issues in job type and org type in dropdown selection
+Pr: KPI bugfixes`;
 
 export default function TaskInput({ onSummarize, isLoading }: TaskInputProps) {
   const [text, setText] = useState("");
@@ -77,9 +69,9 @@ export default function TaskInput({ onSummarize, isLoading }: TaskInputProps) {
   return (
     <div className="flex flex-col h-full">
       {/* Card header */}
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex items-center justify-between mb-3 sm:mb-4">
         <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-lg bg-indigo-600/20 flex items-center justify-center border border-indigo-500/30">
+          <div className="w-8 h-8 rounded-lg bg-indigo-600/20 flex items-center justify-center border border-indigo-500/30 flex-shrink-0">
             <ClipboardPaste className="w-4 h-4 text-indigo-400" />
           </div>
           <div>
@@ -89,13 +81,13 @@ export default function TaskInput({ onSummarize, isLoading }: TaskInputProps) {
         </div>
 
         {/* Top actions */}
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1">
           <button
             onClick={() => setShowExample(!showExample)}
-            className="flex items-center gap-1 text-xs text-slate-400 hover:text-indigo-300 transition-colors px-2 py-1 rounded-lg hover:bg-white/5"
+            className="flex items-center gap-1 text-xs text-slate-400 hover:text-indigo-300 transition-colors px-2 py-1.5 rounded-lg hover:bg-white/5 active:bg-white/10"
           >
-            <Info className="w-3 h-3" />
-            <span className="hidden sm:inline">Example</span>
+            <Info className="w-3.5 h-3.5" />
+            <span className="text-xs">Example</span>
             <ChevronDown
               className={`w-3 h-3 transition-transform ${showExample ? "rotate-180" : ""}`}
             />
@@ -103,10 +95,10 @@ export default function TaskInput({ onSummarize, isLoading }: TaskInputProps) {
           {text && (
             <button
               onClick={handleClear}
-              className="flex items-center gap-1 text-xs text-slate-400 hover:text-red-400 transition-colors px-2 py-1 rounded-lg hover:bg-red-500/10"
+              className="flex items-center gap-1 text-xs text-slate-400 hover:text-red-400 transition-colors px-2 py-1.5 rounded-lg hover:bg-red-500/10 active:bg-red-500/20"
             >
-              <Trash2 className="w-3 h-3" />
-              <span className="hidden sm:inline">Clear</span>
+              <Trash2 className="w-3.5 h-3.5" />
+              <span className="text-xs">Clear</span>
             </button>
           )}
         </div>
@@ -116,12 +108,12 @@ export default function TaskInput({ onSummarize, isLoading }: TaskInputProps) {
       {showExample && (
         <div className="mb-3 p-3 rounded-xl bg-indigo-950/40 border border-indigo-500/20 animate-fade-in">
           <p className="text-xs text-slate-400 mb-2 font-medium">Example input format:</p>
-          <pre className="text-xs text-slate-400 whitespace-pre-wrap font-mono leading-relaxed line-clamp-6 overflow-hidden">
+          <pre className="text-xs text-slate-400 whitespace-pre-wrap font-mono leading-relaxed max-h-40 overflow-y-auto">
             {EXAMPLE_TEXT}
           </pre>
           <button
             onClick={handleLoadExample}
-            className="mt-2 text-xs text-indigo-400 hover:text-indigo-300 font-medium transition-colors"
+            className="mt-2 text-xs text-indigo-400 hover:text-indigo-300 font-semibold transition-colors"
           >
             → Load this example
           </button>
@@ -135,11 +127,12 @@ export default function TaskInput({ onSummarize, isLoading }: TaskInputProps) {
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder={`Paste your task updates here...\n\nSupports multiple developers, any format:\n• "Task Update: 1. Did X 2. Did Y"\n• "In Progress: Working on Z"\n• "PR same as updates"\n• Mixed bullet/numbered/plain text`}
-          className={`w-full h-full min-h-[220px] sm:min-h-[300px] bg-white/[0.03] border rounded-xl px-4 py-3 text-sm text-slate-200 placeholder-slate-600 outline-none resize-none transition-all duration-200 font-mono leading-relaxed
-            ${isOverLimit
-              ? "border-red-500/50 focus:border-red-500"
-              : "border-white/10 focus:border-indigo-500/60 focus:bg-white/[0.05]"
+          placeholder={`Paste developer task updates here...\n\nSupports multiple developers, any format:\n• Developer Name at top\n• "Task Update: 1. Did X 2. Did Y"\n• "In Progress: Working on Z"\n• "PR Changes same as above"`}
+          className={`w-full h-full min-h-[200px] sm:min-h-[280px] bg-white/[0.03] border rounded-xl px-3.5 py-3 text-base sm:text-sm text-slate-200 placeholder-slate-600 outline-none resize-none transition-all duration-200 font-mono leading-relaxed
+            ${
+              isOverLimit
+                ? "border-red-500/50 focus:border-red-500"
+                : "border-white/10 focus:border-indigo-500/60 focus:bg-white/[0.05]"
             }`}
           style={{ boxShadow: text ? "0 0 0 1px rgba(99,102,241,0.1) inset" : undefined }}
           maxLength={16000}
@@ -150,47 +143,47 @@ export default function TaskInput({ onSummarize, isLoading }: TaskInputProps) {
         {!text && (
           <button
             onClick={handlePaste}
-            className="absolute bottom-4 right-4 flex items-center gap-1.5 text-xs text-slate-500 hover:text-indigo-300 transition-colors"
+            className="absolute bottom-3 right-3 flex items-center gap-1.5 text-xs text-slate-400 bg-white/5 border border-white/10 px-3 py-1.5 rounded-lg hover:text-indigo-300 hover:bg-white/10 transition-colors"
           >
             <ClipboardPaste className="w-3.5 h-3.5" />
-            Paste
+            Paste Clipboard
           </button>
         )}
       </div>
 
       {/* Footer: char count + submit */}
-      <div className="flex items-center justify-between mt-3 gap-3">
+      <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between mt-3 gap-2.5">
         {/* Stats */}
-        <div className="flex items-center gap-3 text-xs text-slate-500">
+        <div className="flex items-center justify-between sm:justify-start gap-2 text-xs text-slate-500">
           <span className={isOverLimit ? "text-red-400 font-medium" : ""}>
-            {charCount.toLocaleString()}{isOverLimit ? " (limit 15,000)" : ""} chars
+            {charCount.toLocaleString()}{isOverLimit ? " (limit 15k)" : ""} chars
           </span>
           <span className="text-slate-700">·</span>
           <span>{wordCount} words</span>
-          <span className="text-slate-700 hidden sm:inline">·</span>
-          <span className="hidden sm:inline text-slate-600">Ctrl+Enter to summarize</span>
+          <span className="text-slate-700 hidden md:inline">·</span>
+          <span className="hidden md:inline text-slate-600">Ctrl+Enter to summarize</span>
         </div>
 
         {/* Submit button */}
         <button
           onClick={handleSubmit}
           disabled={!text.trim() || isLoading || isOverLimit}
-          className={`btn btn-primary rounded-xl whitespace-nowrap text-sm px-4 py-2.5 sm:px-5 sm:py-3 
-            ${(!text.trim() || isLoading || isOverLimit)
-              ? "opacity-50 cursor-not-allowed transform-none shadow-none"
-              : "glow-brand"
+          className={`btn btn-primary rounded-xl whitespace-nowrap text-sm w-full sm:w-auto px-5 py-3 
+            ${
+              !text.trim() || isLoading || isOverLimit
+                ? "opacity-50 cursor-not-allowed transform-none shadow-none"
+                : "glow-brand active:scale-[0.99]"
             }`}
         >
           {isLoading ? (
             <>
               <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-              <span className="hidden sm:inline">Summarizing...</span>
-              <span className="sm:hidden">...</span>
+              <span>Summarizing...</span>
             </>
           ) : (
             <>
               <Sparkles className="w-4 h-4" />
-              <span>Summarize</span>
+              <span>Summarize Tasks</span>
             </>
           )}
         </button>
