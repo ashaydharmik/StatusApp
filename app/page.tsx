@@ -121,6 +121,8 @@ export default function HomePage() {
               isLoading={isLoading}
               error={error}
               onRegenerate={handleRegenerate}
+              rawInputText={inputText}
+              onUpdateSummary={setSummary}
             />
           </div>
         </div>

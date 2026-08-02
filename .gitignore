@@ -8,6 +8,10 @@ node_modules/
 out/
 build/
 dist/
+*.tsbuildinfo
+
+# Scratch test files
+scratch/
 
 # Environment variables
 .env
