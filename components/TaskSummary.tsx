@@ -269,8 +269,13 @@ export default function TaskSummary({
   const [assistantMsg, setAssistantMsg] = useState<string | null>(null);
 
   const [copied, setCopied] = useState(false);
+  const isInternalUpdate = useRef(false);
 
   useEffect(() => {
+    if (isInternalUpdate.current) {
+      isInternalUpdate.current = false;
+      return;
+    }
     if (externalSummary) {
       setCurrentSummary(externalSummary);
       setHistory([externalSummary]);
@@ -283,19 +288,25 @@ export default function TaskSummary({
   }, [externalSummary]);
 
   const updateSummaryState = (newSummary: SummaryResult) => {
+    isInternalUpdate.current = true;
     setCurrentSummary(newSummary);
-    if (onUpdateSummary) onUpdateSummary(newSummary);
 
-    const newHistory = history.slice(0, historyIndex + 1);
-    newHistory.push(newSummary);
-    setHistory(newHistory);
-    setHistoryIndex(newHistory.length - 1);
+    setHistory((prevHistory) => {
+      const nextHistory = prevHistory.slice(0, historyIndex + 1);
+      nextHistory.push(newSummary);
+      setHistoryIndex(nextHistory.length - 1);
+      return nextHistory;
+    });
+
+    if (onUpdateSummary) onUpdateSummary(newSummary);
   };
 
   const handleUndo = () => {
     if (historyIndex > 0) {
-      const prev = history[historyIndex - 1];
-      setHistoryIndex(historyIndex - 1);
+      isInternalUpdate.current = true;
+      const prevIndex = historyIndex - 1;
+      const prev = history[prevIndex];
+      setHistoryIndex(prevIndex);
       setCurrentSummary(prev);
       if (onUpdateSummary) onUpdateSummary(prev);
     }
@@ -303,8 +314,10 @@ export default function TaskSummary({
 
   const handleRedo = () => {
     if (historyIndex < history.length - 1) {
-      const next = history[historyIndex + 1];
-      setHistoryIndex(historyIndex + 1);
+      isInternalUpdate.current = true;
+      const nextIndex = historyIndex + 1;
+      const next = history[nextIndex];
+      setHistoryIndex(nextIndex);
       setCurrentSummary(next);
       if (onUpdateSummary) onUpdateSummary(next);
     }
@@ -513,10 +526,10 @@ export default function TaskSummary({
             <button
               onClick={handleUndo}
               disabled={historyIndex <= 0}
-              title="Undo modification"
+              title={historyIndex > 0 ? `Undo (Step ${historyIndex} of ${history.length - 1})` : "Undo (no previous steps)"}
               className={`p-1.5 rounded-lg border border-white/10 transition-all ${
                 historyIndex > 0
-                  ? "text-slate-300 hover:text-white hover:bg-white/10"
+                  ? "text-indigo-300 hover:text-white hover:bg-indigo-600/30 border-indigo-500/40 shadow-sm"
                   : "text-slate-600 opacity-40 cursor-not-allowed"
               }`}
             >
@@ -525,10 +538,10 @@ export default function TaskSummary({
             <button
               onClick={handleRedo}
               disabled={historyIndex >= history.length - 1}
-              title="Redo modification"
+              title={historyIndex < history.length - 1 ? "Redo" : "Redo (no next steps)"}
               className={`p-1.5 rounded-lg border border-white/10 transition-all ${
                 historyIndex < history.length - 1
-                  ? "text-slate-300 hover:text-white hover:bg-white/10"
+                  ? "text-indigo-300 hover:text-white hover:bg-indigo-600/30 border-indigo-500/40 shadow-sm"
                   : "text-slate-600 opacity-40 cursor-not-allowed"
               }`}
             >
@@ -773,7 +786,7 @@ export default function TaskSummary({
                 onKeyDown={(e) => {
                   if (e.key === "Enter") handleRunAssistant();
                 }}
-                placeholder="Ask AI Assistant to modify or rephrase (e.g., 'Group by developer', 'Rephrase item 2')..."
+                placeholder="Ask AI Assistant to modify or rephrase (e.g., 'Move 2nd pr to in progress', 'Rephrase item 1')..."
                 className="w-full bg-black/40 border border-white/10 focus:border-indigo-500/60 rounded-xl pl-3 py-2 pr-10 text-xs text-slate-200 placeholder-slate-500 outline-none transition-all"
                 disabled={isAssistantWorking}
               />
