@@ -9,26 +9,28 @@ export interface SummaryResult {
 const SYSTEM_PROMPT = `You are a strict task update extractor and summarizer. Your job is to parse raw daily task updates from developer input and extract tasks into structured JSON.
 
 CRITICAL EXTRACTION RULES:
-1. VERBATIM EXTRACTION (NO AUTO-REPHRASING):
-   - You MUST extract the EXACT task descriptions and sentences as pasted by the user.
-   - Do NOT rewrite, rephrase, summarize away, fix grammar, or change words during initial extraction.
-   - Strip leading numbers (e.g., "1. ", "2. "), bullet symbols ("• ", "- "), or header labels ("Task Update:"), but PRESERVE the exact sentence text verbatim.
+1. REMOVE PERSON/DEVELOPER NAMES:
+   - Developers often paste updates with their full name at the top of each block (e.g., "Sravan Kumar Reddy Kummita", "John Doe", "@Ashay").
+   - You MUST IGNORE AND REMOVE all developer/person names. NEVER include a person's name as a task description in the output JSON.
 
-2. ABSOLUTE ZERO HALLUCINATION:
+2. UNLABELED TASKS DEFAULT TO COMPLETED:
+   - If a list of tasks has no explicit section header (like "In-progress:" or "PR:"), ALWAYS classify them under "completed".
+   - In-progress tasks and PRs will always have explicit section labels.
+
+3. SPECIAL "PR SAME AS UPDATES / ABOVE" RULE:
+   - If a line says "PR Changes same as above", "PR as same as updates", "PR same as completed", "PR - same as updates", or similar:
+     -> Copy ALL completed tasks into the "prs" array.
+     -> STRICT CONSTRAINT: NEVER copy any "inProgress" tasks into the "prs" array!
+
+4. VERBATIM EXTRACTION (NO AUTO-REPHRASING):
+   - Extract the EXACT task descriptions and sentences as pasted by the user.
+   - Do NOT rewrite, rephrase, summarize away, fix grammar, or change words during initial extraction.
+   - Strip leading numbers (e.g., "1. ", "2. "), bullet symbols ("• ", "- "), or section headers ("Task update:"), but PRESERVE the exact sentence text verbatim.
+
+5. ABSOLUTE ZERO HALLUCINATION:
    - Do NOT invent, assume, or add any task, detail, or PR that is not explicitly present in the input text.
 
-3. SECTION CATEGORIZATION RULES:
-   - "completed": Extract items listed under "Task Update", "Completed", "Today's Update", "Done", "Updates", or standard un-labeled task items.
-   - "inProgress": Extract items explicitly listed under headers like "In Progress", "In-Progress", "Ongoing", "Pending".
-   - "prs": Extract items explicitly listed under headers like "PR", "PRs", "Pull Request".
-   - STRICT CONSTRAINT: NEVER place "In Progress" tasks into the "prs" array!
-
-4. SPECIAL "PR SAME AS UPDATES" RULE:
-   - If the update text contains "PR same as updates", "PR same as above", "PR same as completed", "PR - same as updates", or similar:
-     -> Copy ALL completed tasks into the "prs" array.
-     -> DO NOT copy any "inProgress" tasks to "prs".
-
-5. OUTPUT STRUCTURE:
+6. OUTPUT STRUCTURE:
 Output ONLY a valid JSON object matching this exact format:
 {
   "completed": ["exact sentence 1", "exact sentence 2"],
@@ -44,7 +46,7 @@ Your job is to apply the user's specific instruction to the existing summary JSO
 RULES:
 1. Modify ONLY what the user asks for in their instruction (e.g. rephrasing tasks, making them concise, converting to formal tone, moving items between sections, adding a new item, deleting an item, or fixing grammar/typos).
 2. If the user asks to rephrase or rewrite, apply high quality developer tone adjustments while preserving the core technical details.
-3. Never invent tasks that contradict the context or user request.
+3. Never include developer/person names in summary outputs.
 4. Maintain logical categories:
    - "completed": finished tasks
    - "inProgress": ongoing tasks
@@ -76,6 +78,41 @@ function cleanItem(item: string): string {
     .trim();
 }
 
+function isPersonNameLine(line: string): boolean {
+  const trimmed = line.trim();
+  if (!trimmed) return false;
+
+  // Not a name if it starts with numbers or bullet points
+  if (/^[\d+.\-•*]/.test(trimmed)) return false;
+
+  // Not a name if it matches known section headers
+  if (/^(task update|completed|today's update|done|tasks|updates|in progress|in-progress|ongoing|pending|pr|prs|pull request|pull requests):?/i.test(trimmed)) {
+    return false;
+  }
+
+  // Not a name if it matches PR same as updates phrases
+  if (/pr\s+(as\s+)?(same|changes)/i.test(trimmed)) return false;
+
+  // Common technical / task verbs and keywords indicating task description
+  const taskKeywords = [
+    "worked", "updated", "integrated", "fixed", "implemented", "added", "testing",
+    "created", "mapping", "alignment", "changes", "flow", "bug", "fixes", "workflow",
+    "excel", "api", "apis", "ui", "kpi", "form", "dropdown", "modal", "appraisal",
+    "recommendation", "details", "page", "button", "service", "table", "grid", "issue"
+  ];
+  const lower = trimmed.toLowerCase();
+  if (taskKeywords.some((kw) => lower.includes(kw))) return false;
+
+  // Name pattern: 1 to 5 words starting with capital letters (e.g., Sravan Kumar Reddy Kummita)
+  const words = trimmed.split(/\s+/);
+  if (words.length >= 1 && words.length <= 5) {
+    const looksLikeName = words.every((w) => /^[A-Z][a-zA-Z'.-]*$/.test(w));
+    if (looksLikeName) return true;
+  }
+
+  return false;
+}
+
 function parseJsonSafely(text: string): SummaryResult | null {
   try {
     const cleaned = text
@@ -84,10 +121,19 @@ function parseJsonSafely(text: string): SummaryResult | null {
       .replace(/\s*```$/i, "")
       .trim();
     const parsed = JSON.parse(cleaned);
+
+    const filterNames = (list: any[]) =>
+      Array.isArray(list)
+        ? list
+            .map(cleanItem)
+            .filter(Boolean)
+            .filter((item) => !isPersonNameLine(item))
+        : [];
+
     return {
-      completed: Array.isArray(parsed.completed) ? parsed.completed.map(cleanItem).filter(Boolean) : [],
-      inProgress: Array.isArray(parsed.inProgress) ? parsed.inProgress.map(cleanItem).filter(Boolean) : [],
-      prs: Array.isArray(parsed.prs) ? parsed.prs.map(cleanItem).filter(Boolean) : [],
+      completed: filterNames(parsed.completed),
+      inProgress: filterNames(parsed.inProgress),
+      prs: filterNames(parsed.prs),
     };
   } catch {
     return null;
@@ -97,7 +143,7 @@ function parseJsonSafely(text: string): SummaryResult | null {
 /**
  * Intelligent Local Rule-Based Fallback Parser
  * Used when API keys are unconfigured, rate-limited, or AI models are unavailable.
- * Preserves EXACT sentences and strictly enforces no in-progress tasks in PRs.
+ * Removes developer names, defaults unlabeled blocks to Completed, and excludes in-progress from PRs.
  */
 export function parseLocalFallback(rawText: string): SummaryResult {
   const completed: string[] = [];
@@ -112,13 +158,19 @@ export function parseLocalFallback(rawText: string): SummaryResult {
     const line = lines[i].trim();
     if (!line) continue;
 
+    // Check for developer/person name line -> skip and reset section to completed
+    if (isPersonNameLine(line)) {
+      currentSection = "completed";
+      continue;
+    }
+
     // Check for section headers
     if (/^(in progress|in-progress|ongoing|pending):?/i.test(line)) {
       currentSection = "inProgress";
       const rest = line.replace(/^(in progress|in-progress|ongoing|pending):?/i, "").trim();
       if (rest) {
         const cleaned = cleanItem(rest);
-        if (cleaned) inProgress.push(cleaned);
+        if (cleaned && !isPersonNameLine(cleaned)) inProgress.push(cleaned);
       }
       continue;
     }
@@ -127,11 +179,11 @@ export function parseLocalFallback(rawText: string): SummaryResult {
       currentSection = "prs";
       const rest = line.replace(/^(pr|prs|pull request|pull requests):?/i, "").replace(/^[-:\s]+/, "").trim();
 
-      if (/same as (updates|above|completed)/i.test(rest) || /same as/i.test(rest)) {
+      if (/same as (updates|above|completed)/i.test(rest) || /same as/i.test(rest) || /as same as/i.test(rest)) {
         prSameAsUpdatesDetected = true;
       } else if (rest) {
         const cleaned = cleanItem(rest);
-        if (cleaned) prs.push(cleaned);
+        if (cleaned && !isPersonNameLine(cleaned)) prs.push(cleaned);
       }
       continue;
     }
@@ -141,20 +193,20 @@ export function parseLocalFallback(rawText: string): SummaryResult {
       const rest = line.replace(/^(task update|completed|today's update|done|tasks|updates):?/i, "").trim();
       if (rest) {
         const cleaned = cleanItem(rest);
-        if (cleaned) completed.push(cleaned);
+        if (cleaned && !isPersonNameLine(cleaned)) completed.push(cleaned);
       }
       continue;
     }
 
-    // Check standalone line "pr same as updates" or similar
-    if (/pr\s+same\s+as\s+(updates|above|completed)/i.test(line) || /^pr\s*-\s*same/i.test(line)) {
+    // Check standalone line "pr same as updates" or "pr changes same as above" or similar
+    if (/pr\s+.*same\s+as/i.test(line) || /^pr\s*-\s*same/i.test(line)) {
       prSameAsUpdatesDetected = true;
       continue;
     }
 
     // Regular line item - preserve exact text minus leading bullet/numbering
     const cleaned = cleanItem(line);
-    if (!cleaned) continue;
+    if (!cleaned || isPersonNameLine(cleaned)) continue;
 
     if (currentSection === "completed") {
       completed.push(cleaned);
