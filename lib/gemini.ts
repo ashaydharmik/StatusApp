@@ -59,31 +59,32 @@ Do not include markdown explanations outside the JSON.`;
 
 const ASSISTANT_SYSTEM_PROMPT = `You are an AI assistant helping a user modify, rephrase, and refine their daily task summary result on demand.
 
-Your job is to apply the user's specific instruction to the existing summary JSON.
+Your job is to READ the CURRENT SUMMARY GENERATED RESULT JSON provided and apply the user's specific instruction to modify it.
 
 CRITICAL INSTRUCTION EXECUTION RULES:
-1. ORDINAL & SECTION MOVEMENT COMMANDS:
-   - Recognize ordinal numbers ("1st", "2nd", "3rd", "4th") and section references ("2nd pr", "1st completed item", "item 3").
-   - Example: "move 2nd pr to in progress" means:
-     -> Locate the 2nd item in the "prs" array (index 1).
-     -> Remove it from "prs" and append it to "inProgress".
-   - Example: "move 1st item to in progress" means:
-     -> Locate the 1st item in "completed" (index 0).
-     -> Remove it from "completed" and append it to "inProgress".
+1. READ & MODIFY ACTIVE GENERATED RESULT:
+   - You are given the exact current state of the generated summary JSON ("completed", "inProgress", "prs", "developers").
+   - You MUST perform the requested modification on THAT exact JSON data and return the updated JSON.
 
-2. KEEP ALL ARRAYS IN SYNC:
-   - Keep both top-level arrays ("completed", "inProgress", "prs") AND per-developer arrays ("developers") updated and in sync!
+2. SUPPORT ALL MODIFICATION COMMANDS:
+   - INDEX-BASED MOVEMENTS: "move 2nd pr to in progress", "move 1st item to in progress", "move task 3 to prs".
+   - TEXT-BASED MOVEMENTS / DELETIONS: "move Rating display changes to in progress", "delete KPI bugfixes".
+   - EDITING & REPHRASING: "change item 1 to XYZ", "make completed concise", "rephrase professionally".
+   - ADDING ITEMS: "add item XYZ to completed", "add PR for auth module".
 
-3. REPHRASING & EDITING:
-   - If rephrasing or shortening, preserve all technical details while improving sentence structure.
-   - Return ONLY a valid JSON object matching the structure:
+3. KEEP ALL ARRAYS IN SYNC:
+   - Always keep top-level arrays ("completed", "inProgress", "prs") AND per-developer arrays ("developers") updated and in sync!
+   - NEVER place inProgress tasks in the "prs" array.
+
+4. OUTPUT FORMAT:
+Return ONLY a valid JSON object matching the exact structure:
 {
   "completed": [...],
   "inProgress": [...],
   "prs": [...],
   "developers": [...]
 }
-Do not include markdown explanations outside the JSON.`;
+Do not include any explanation or markdown outside the JSON.`;
 
 // List of models to try in sequence if rate-limited or quota-exceeded
 const MODELS = [
@@ -376,11 +377,11 @@ export async function modifySummaryWithAI(
     const ai = new GoogleGenAI({ apiKey });
     const prompt = `${ASSISTANT_SYSTEM_PROMPT}
 
-CURRENT SUMMARY JSON:
+CURRENT SUMMARY GENERATED RESULT JSON TO MODIFY:
 ${JSON.stringify(currentSummary, null, 2)}
 
-${rawInputText ? `ORIGINAL RAW DEVELOPER INPUT:\n${rawInputText}\n` : ""}
-USER INSTRUCTION FOR ASSISTANT:
+${rawInputText ? `ORIGINAL RAW DEVELOPER INPUT CONTEXT:\n${rawInputText}\n` : ""}
+USER INSTRUCTION FOR AI ASSISTANT:
 "${instruction}"`;
 
     for (const model of MODELS) {
@@ -448,15 +449,23 @@ function applyLocalAssistantInstruction(
     let sourceArray = isSourcePr ? updatedPrs : isSourceInProgress ? updatedInProgress : updatedCompleted;
     if (sourceArray.length === 0) sourceArray = updatedCompleted;
 
+    let movedItem = "";
     const num = parseOrdinalOrNumber(lower);
+
     if (num && num >= 1 && num <= sourceArray.length) {
-      const idx = num - 1;
-      const movedItem = sourceArray.splice(idx, 1)[0];
-      if (movedItem) {
-        if (targetSection === "inProgress") updatedInProgress.push(movedItem);
-        else if (targetSection === "prs") updatedPrs.push(movedItem);
-        else updatedCompleted.push(movedItem);
+      movedItem = sourceArray.splice(num - 1, 1)[0];
+    } else {
+      // Try text matching if no index number specified
+      const matchIdx = sourceArray.findIndex(item => lower.includes(item.toLowerCase().slice(0, 15)));
+      if (matchIdx !== -1) {
+        movedItem = sourceArray.splice(matchIdx, 1)[0];
       }
+    }
+
+    if (movedItem) {
+      if (targetSection === "inProgress") updatedInProgress.push(movedItem);
+      else if (targetSection === "prs") updatedPrs.push(movedItem);
+      else updatedCompleted.push(movedItem);
     }
 
     const devs = current.developers?.map((d) => ({
@@ -478,6 +487,9 @@ function applyLocalAssistantInstruction(
     const num = parseOrdinalOrNumber(lower);
     if (num && num >= 1 && num <= sourceArray.length) {
       sourceArray.splice(num - 1, 1);
+    } else {
+      const matchIdx = sourceArray.findIndex(item => lower.includes(item.toLowerCase().slice(0, 15)));
+      if (matchIdx !== -1) sourceArray.splice(matchIdx, 1);
     }
     return { completed: updatedCompleted, inProgress: updatedInProgress, prs: updatedPrs };
   }
