@@ -20,22 +20,20 @@ import {
   Wand2,
   X,
   Bot,
+  Users,
+  Layers,
+  User,
 } from "lucide-react";
-
-export interface SummaryData {
-  completed: string[];
-  inProgress: string[];
-  prs: string[];
-}
+import { SummaryResult, DeveloperSummary } from "@/lib/gemini";
 
 interface TaskSummaryProps {
   recipientName: string;
-  summary: SummaryData | null;
+  summary: SummaryResult | null;
   isLoading: boolean;
   error: string | null;
   onRegenerate: () => void;
   rawInputText?: string;
-  onUpdateSummary?: (newSummary: SummaryData) => void;
+  onUpdateSummary?: (newSummary: SummaryResult) => void;
 }
 
 function formatDate(date: Date): string {
@@ -64,15 +62,8 @@ function LoadingSkeleton() {
           <SkeletonLine width="w-10/12" />
         </div>
       </div>
-      <div className="space-y-3">
-        <SkeletonLine width="w-1/4" />
-        <div className="space-y-2 pl-3">
-          <SkeletonLine width="w-11/12" />
-          <SkeletonLine width="w-8/12" />
-        </div>
-      </div>
       <p className="text-xs text-slate-500 text-center pt-2 animate-pulse">
-        🤖 AI is extracting exact task updates...
+        🤖 AI is segregating multi-developer updates...
       </p>
     </div>
   );
@@ -246,16 +237,10 @@ function EditableSection({
             autoFocus
             className="flex-1 bg-black/40 border border-indigo-500/50 rounded-lg px-3 py-1.5 text-xs text-slate-100 placeholder-slate-500 outline-none"
           />
-          <button
-            onClick={handleSaveNew}
-            className="btn btn-primary rounded-lg text-xs px-3 py-1.5"
-          >
+          <button onClick={handleSaveNew} className="btn btn-primary rounded-lg text-xs px-3 py-1.5">
             Add
           </button>
-          <button
-            onClick={() => setIsAdding(false)}
-            className="p-1.5 rounded text-slate-400 hover:text-slate-200"
-          >
+          <button onClick={() => setIsAdding(false)} className="p-1.5 rounded text-slate-400 hover:text-slate-200">
             <X className="w-4 h-4" />
           </button>
         </div>
@@ -273,9 +258,10 @@ export default function TaskSummary({
   rawInputText = "",
   onUpdateSummary,
 }: TaskSummaryProps) {
-  const [currentSummary, setCurrentSummary] = useState<SummaryData | null>(externalSummary);
-  const [history, setHistory] = useState<SummaryData[]>([]);
+  const [currentSummary, setCurrentSummary] = useState<SummaryResult | null>(externalSummary);
+  const [history, setHistory] = useState<SummaryResult[]>([]);
   const [historyIndex, setHistoryIndex] = useState<number>(-1);
+  const [viewMode, setViewMode] = useState<"combined" | "byDeveloper">("combined");
 
   // AI Assistant state
   const [assistantPrompt, setAssistantPrompt] = useState("");
@@ -284,7 +270,6 @@ export default function TaskSummary({
 
   const [copied, setCopied] = useState(false);
 
-  // Keep internal state updated when external props change
   useEffect(() => {
     if (externalSummary) {
       setCurrentSummary(externalSummary);
@@ -297,11 +282,10 @@ export default function TaskSummary({
     }
   }, [externalSummary]);
 
-  const updateSummaryState = (newSummary: SummaryData) => {
+  const updateSummaryState = (newSummary: SummaryResult) => {
     setCurrentSummary(newSummary);
     if (onUpdateSummary) onUpdateSummary(newSummary);
 
-    // Push state to undo/redo history
     const newHistory = history.slice(0, historyIndex + 1);
     newHistory.push(newSummary);
     setHistory(newHistory);
@@ -329,7 +313,8 @@ export default function TaskSummary({
   // Delete item with automatic serial re-numbering
   const handleDeleteItem = (section: "completed" | "inProgress" | "prs", index: number) => {
     if (!currentSummary) return;
-    const newSummary: SummaryData = {
+    const newSummary: SummaryResult = {
+      ...currentSummary,
       completed: [...currentSummary.completed],
       inProgress: [...currentSummary.inProgress],
       prs: [...currentSummary.prs],
@@ -340,7 +325,8 @@ export default function TaskSummary({
 
   const handleEditItem = (section: "completed" | "inProgress" | "prs", index: number, newText: string) => {
     if (!currentSummary) return;
-    const newSummary: SummaryData = {
+    const newSummary: SummaryResult = {
+      ...currentSummary,
       completed: [...currentSummary.completed],
       inProgress: [...currentSummary.inProgress],
       prs: [...currentSummary.prs],
@@ -351,7 +337,8 @@ export default function TaskSummary({
 
   const handleAddItem = (section: "completed" | "inProgress" | "prs", text: string) => {
     if (!currentSummary) return;
-    const newSummary: SummaryData = {
+    const newSummary: SummaryResult = {
+      ...currentSummary,
       completed: [...currentSummary.completed],
       inProgress: [...currentSummary.inProgress],
       prs: [...currentSummary.prs],
@@ -406,19 +393,37 @@ export default function TaskSummary({
       `Kindly find the task updates and PR's for **${today}**`,
     ];
 
-    if (currentSummary.completed.length > 0) {
-      lines.push("", "### Completed", "");
-      currentSummary.completed.forEach((item, i) => lines.push(`${i + 1}. ${item}`));
-    }
+    if (viewMode === "byDeveloper" && currentSummary.developers && currentSummary.developers.length > 0) {
+      currentSummary.developers.forEach((dev) => {
+        lines.push("", `👤 **${dev.developerName}**`);
+        if (dev.completed.length > 0) {
+          lines.push("", "### Completed");
+          dev.completed.forEach((item, i) => lines.push(`${i + 1}. ${item}`));
+        }
+        if (dev.inProgress.length > 0) {
+          lines.push("", "### In-Progress");
+          dev.inProgress.forEach((item, i) => lines.push(`${i + 1}. ${item}`));
+        }
+        if (dev.prs.length > 0) {
+          lines.push("", "### PR's");
+          dev.prs.forEach((item, i) => lines.push(`${i + 1}. ${item}`));
+        }
+      });
+    } else {
+      if (currentSummary.completed.length > 0) {
+        lines.push("", "### Completed", "");
+        currentSummary.completed.forEach((item, i) => lines.push(`${i + 1}. ${item}`));
+      }
 
-    if (currentSummary.inProgress.length > 0) {
-      lines.push("", "### In-Progress", "");
-      currentSummary.inProgress.forEach((item, i) => lines.push(`${i + 1}. ${item}`));
-    }
+      if (currentSummary.inProgress.length > 0) {
+        lines.push("", "### In-Progress", "");
+        currentSummary.inProgress.forEach((item, i) => lines.push(`${i + 1}. ${item}`));
+      }
 
-    if (currentSummary.prs.length > 0) {
-      lines.push("", "### PR's", "");
-      currentSummary.prs.forEach((item, i) => lines.push(`${i + 1}. ${item}`));
+      if (currentSummary.prs.length > 0) {
+        lines.push("", "### PR's", "");
+        currentSummary.prs.forEach((item, i) => lines.push(`${i + 1}. ${item}`));
+      }
     }
 
     return lines.join("\n");
@@ -449,6 +454,8 @@ export default function TaskSummary({
       currentSummary.inProgress.length === 0 &&
       currentSummary.prs.length === 0);
 
+  const hasDevelopers = currentSummary?.developers && currentSummary.developers.length > 0;
+
   return (
     <div className="flex flex-col h-full">
       {/* Card header */}
@@ -460,19 +467,49 @@ export default function TaskSummary({
           <div>
             <h2 className="text-sm font-bold text-white flex items-center gap-2">
               Task Summary
-              {history.length > 1 && (
-                <span className="text-[10px] bg-indigo-500/20 text-indigo-300 px-2 py-0.5 rounded-full border border-indigo-500/30">
-                  Edited
+              {hasDevelopers && (
+                <span className="text-[10px] bg-indigo-500/20 text-indigo-300 px-2 py-0.5 rounded-full border border-indigo-500/30 flex items-center gap-1">
+                  <Users className="w-3 h-3" />
+                  {currentSummary.developers?.length} Devs
                 </span>
               )}
             </h2>
-            <p className="text-xs text-slate-500">Verbatim extracted & editable output</p>
+            <p className="text-xs text-slate-500">Smart multi-developer summary</p>
           </div>
         </div>
 
-        {/* Top actions: Undo, Redo, Regenerate, Copy */}
+        {/* View Mode Toggle & Top Actions */}
         {currentSummary && !isEmpty && (
           <div className="flex items-center gap-1.5">
+            {hasDevelopers && (
+              <div className="flex items-center bg-white/5 border border-white/10 rounded-lg p-0.5 mr-1">
+                <button
+                  onClick={() => setViewMode("combined")}
+                  className={`flex items-center gap-1 text-[11px] font-medium px-2 py-1 rounded-md transition-all ${
+                    viewMode === "combined"
+                      ? "bg-indigo-600 text-white shadow-sm"
+                      : "text-slate-400 hover:text-slate-200"
+                  }`}
+                  title="Combined summary view"
+                >
+                  <Layers className="w-3 h-3" />
+                  Combined
+                </button>
+                <button
+                  onClick={() => setViewMode("byDeveloper")}
+                  className={`flex items-center gap-1 text-[11px] font-medium px-2 py-1 rounded-md transition-all ${
+                    viewMode === "byDeveloper"
+                      ? "bg-indigo-600 text-white shadow-sm"
+                      : "text-slate-400 hover:text-slate-200"
+                  }`}
+                  title="Grouped by developer view"
+                >
+                  <Users className="w-3 h-3" />
+                  By Dev
+                </button>
+              </div>
+            )}
+
             <button
               onClick={handleUndo}
               disabled={historyIndex <= 0}
@@ -561,9 +598,7 @@ export default function TaskSummary({
               </div>
             </div>
             <div>
-              <p className="text-sm font-semibold text-slate-400 mb-1">
-                Your summary will appear here
-              </p>
+              <p className="text-sm font-semibold text-slate-400 mb-1">Your summary will appear here</p>
               <p className="text-xs text-slate-600 max-w-xs leading-relaxed">
                 Paste your daily task updates on the left and click{" "}
                 <span className="text-indigo-400 font-medium">Summarize</span>
@@ -572,7 +607,7 @@ export default function TaskSummary({
           </div>
         )}
 
-        {/* Formatted summary results with inline editing */}
+        {/* Formatted summary results */}
         {!isLoading && !error && currentSummary && !isEmpty && (
           <div className="space-y-6 animate-slide-up">
             {/* Header greeting */}
@@ -586,47 +621,114 @@ export default function TaskSummary({
               </p>
             </div>
 
-            {/* Completed */}
-            <EditableSection
-              sectionKey="completed"
-              icon={<CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />}
-              title="Completed"
-              items={currentSummary.completed}
-              badgeClass="bg-emerald-500/15 text-emerald-400 border border-emerald-500/25"
-              iconBg="bg-emerald-600/15 border border-emerald-500/25"
-              numberClass="bg-emerald-500/20 text-emerald-300 text-[10px]"
-              onDeleteItem={handleDeleteItem}
-              onEditItem={handleEditItem}
-              onAddItem={handleAddItem}
-            />
+            {/* View Mode: Grouped By Developer */}
+            {viewMode === "byDeveloper" && currentSummary.developers && currentSummary.developers.length > 0 ? (
+              <div className="space-y-6">
+                {currentSummary.developers.map((dev, dIdx) => (
+                  <div
+                    key={dIdx}
+                    className="p-4 rounded-xl bg-white/[0.02] border border-white/10 space-y-4"
+                  >
+                    <div className="flex items-center gap-2 pb-2 border-b border-white/5">
+                      <div className="w-6 h-6 rounded-md bg-indigo-500/20 flex items-center justify-center text-indigo-400">
+                        <User className="w-3.5 h-3.5" />
+                      </div>
+                      <h3 className="text-sm font-bold text-slate-100">{dev.developerName}</h3>
+                    </div>
 
-            {/* In Progress */}
-            <EditableSection
-              sectionKey="inProgress"
-              icon={<Clock className="w-3.5 h-3.5 text-amber-400" />}
-              title="In Progress"
-              items={currentSummary.inProgress}
-              badgeClass="bg-amber-500/15 text-amber-400 border border-amber-500/25"
-              iconBg="bg-amber-600/15 border border-amber-500/25"
-              numberClass="bg-amber-500/20 text-amber-300 text-[10px]"
-              onDeleteItem={handleDeleteItem}
-              onEditItem={handleEditItem}
-              onAddItem={handleAddItem}
-            />
+                    {/* Developer Completed */}
+                    {dev.completed.length > 0 && (
+                      <div className="space-y-1.5 pl-2">
+                        <div className="flex items-center gap-2 mb-2">
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                          <span className="text-xs font-semibold text-emerald-400">Completed ({dev.completed.length})</span>
+                        </div>
+                        <ol className="space-y-1 pl-4 list-decimal text-xs text-slate-300">
+                          {dev.completed.map((item, i) => (
+                            <li key={i} className="leading-relaxed">{item}</li>
+                          ))}
+                        </ol>
+                      </div>
+                    )}
 
-            {/* PR's */}
-            <EditableSection
-              sectionKey="prs"
-              icon={<GitPullRequest className="w-3.5 h-3.5 text-blue-400" />}
-              title="PR's"
-              items={currentSummary.prs}
-              badgeClass="bg-blue-500/15 text-blue-400 border border-blue-500/25"
-              iconBg="bg-blue-600/15 border border-blue-500/25"
-              numberClass="bg-blue-500/20 text-blue-300 text-[10px]"
-              onDeleteItem={handleDeleteItem}
-              onEditItem={handleEditItem}
-              onAddItem={handleAddItem}
-            />
+                    {/* Developer In Progress */}
+                    {dev.inProgress.length > 0 && (
+                      <div className="space-y-1.5 pl-2">
+                        <div className="flex items-center gap-2 mb-2">
+                          <Clock className="w-3.5 h-3.5 text-amber-400" />
+                          <span className="text-xs font-semibold text-amber-400">In Progress ({dev.inProgress.length})</span>
+                        </div>
+                        <ol className="space-y-1 pl-4 list-decimal text-xs text-slate-300">
+                          {dev.inProgress.map((item, i) => (
+                            <li key={i} className="leading-relaxed">{item}</li>
+                          ))}
+                        </ol>
+                      </div>
+                    )}
+
+                    {/* Developer PRs */}
+                    {dev.prs.length > 0 && (
+                      <div className="space-y-1.5 pl-2">
+                        <div className="flex items-center gap-2 mb-2">
+                          <GitPullRequest className="w-3.5 h-3.5 text-blue-400" />
+                          <span className="text-xs font-semibold text-blue-400">PR's ({dev.prs.length})</span>
+                        </div>
+                        <ol className="space-y-1 pl-4 list-decimal text-xs text-slate-300">
+                          {dev.prs.map((item, i) => (
+                            <li key={i} className="leading-relaxed">{item}</li>
+                          ))}
+                        </ol>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              /* View Mode: Combined List (Default) */
+              <div className="space-y-6">
+                {/* Completed */}
+                <EditableSection
+                  sectionKey="completed"
+                  icon={<CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />}
+                  title="Completed"
+                  items={currentSummary.completed}
+                  badgeClass="bg-emerald-500/15 text-emerald-400 border border-emerald-500/25"
+                  iconBg="bg-emerald-600/15 border border-emerald-500/25"
+                  numberClass="bg-emerald-500/20 text-emerald-300 text-[10px]"
+                  onDeleteItem={handleDeleteItem}
+                  onEditItem={handleEditItem}
+                  onAddItem={handleAddItem}
+                />
+
+                {/* In Progress */}
+                <EditableSection
+                  sectionKey="inProgress"
+                  icon={<Clock className="w-3.5 h-3.5 text-amber-400" />}
+                  title="In Progress"
+                  items={currentSummary.inProgress}
+                  badgeClass="bg-amber-500/15 text-amber-400 border border-amber-500/25"
+                  iconBg="bg-amber-600/15 border border-amber-500/25"
+                  numberClass="bg-amber-500/20 text-amber-300 text-[10px]"
+                  onDeleteItem={handleDeleteItem}
+                  onEditItem={handleEditItem}
+                  onAddItem={handleAddItem}
+                />
+
+                {/* PR's */}
+                <EditableSection
+                  sectionKey="prs"
+                  icon={<GitPullRequest className="w-3.5 h-3.5 text-blue-400" />}
+                  title="PR's"
+                  items={currentSummary.prs}
+                  badgeClass="bg-blue-500/15 text-blue-400 border border-blue-500/25"
+                  iconBg="bg-blue-600/15 border border-blue-500/25"
+                  numberClass="bg-blue-500/20 text-blue-300 text-[10px]"
+                  onDeleteItem={handleDeleteItem}
+                  onEditItem={handleEditItem}
+                  onAddItem={handleAddItem}
+                />
+              </div>
+            )}
           </div>
         )}
 
@@ -671,7 +773,7 @@ export default function TaskSummary({
                 onKeyDown={(e) => {
                   if (e.key === "Enter") handleRunAssistant();
                 }}
-                placeholder="Ask AI Assistant to modify or rephrase (e.g., 'Move item 1 to in-progress', 'Rephrase item 2')..."
+                placeholder="Ask AI Assistant to modify or rephrase (e.g., 'Group by developer', 'Rephrase item 2')..."
                 className="w-full bg-black/40 border border-white/10 focus:border-indigo-500/60 rounded-xl pl-3 py-2 pr-10 text-xs text-slate-200 placeholder-slate-500 outline-none transition-all"
                 disabled={isAssistantWorking}
               />
