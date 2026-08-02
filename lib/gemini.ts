@@ -61,19 +61,29 @@ const ASSISTANT_SYSTEM_PROMPT = `You are an AI assistant helping a user modify, 
 
 Your job is to apply the user's specific instruction to the existing summary JSON.
 
-RULES:
-1. Apply the user's request accurately (e.g. rephrasing tasks, making them concise, converting to formal tone, moving items between sections, adding a new item, deleting an item, or fixing grammar/typos).
-2. If rephrasing or shortening, preserve all technical meaning and details while making sentence structures clean and professional.
-3. Keep both top-level arrays ("completed", "inProgress", "prs") AND per-developer arrays ("developers") updated and in sync!
-4. NEVER place inProgress tasks in the "prs" array.
-5. Return ONLY a valid JSON object with the updated structure:
+CRITICAL INSTRUCTION EXECUTION RULES:
+1. ORDINAL & SECTION MOVEMENT COMMANDS:
+   - Recognize ordinal numbers ("1st", "2nd", "3rd", "4th") and section references ("2nd pr", "1st completed item", "item 3").
+   - Example: "move 2nd pr to in progress" means:
+     -> Locate the 2nd item in the "prs" array (index 1).
+     -> Remove it from "prs" and append it to "inProgress".
+   - Example: "move 1st item to in progress" means:
+     -> Locate the 1st item in "completed" (index 0).
+     -> Remove it from "completed" and append it to "inProgress".
+
+2. KEEP ALL ARRAYS IN SYNC:
+   - Keep both top-level arrays ("completed", "inProgress", "prs") AND per-developer arrays ("developers") updated and in sync!
+
+3. REPHRASING & EDITING:
+   - If rephrasing or shortening, preserve all technical details while improving sentence structure.
+   - Return ONLY a valid JSON object matching the structure:
 {
   "completed": [...],
   "inProgress": [...],
   "prs": [...],
   "developers": [...]
 }
-Do not include any explanation or markdown outside the JSON.`;
+Do not include markdown explanations outside the JSON.`;
 
 // List of models to try in sequence if rate-limited or quota-exceeded
 const MODELS = [
@@ -396,6 +406,25 @@ USER INSTRUCTION FOR ASSISTANT:
   return applyLocalAssistantInstruction(currentSummary, instruction);
 }
 
+function parseOrdinalOrNumber(str: string): number | null {
+  const match = str.match(/(\d+)(?:st|nd|rd|th)?/i);
+  if (match) {
+    return parseInt(match[1], 10);
+  }
+  const wordMap: Record<string, number> = {
+    first: 1, "1st": 1,
+    second: 2, "2nd": 2,
+    third: 3, "3rd": 3,
+    fourth: 4, "4th": 4,
+    fifth: 5, "5th": 5,
+  };
+  const lower = str.toLowerCase();
+  for (const [key, val] of Object.entries(wordMap)) {
+    if (lower.includes(key)) return val;
+  }
+  return null;
+}
+
 function applyLocalAssistantInstruction(
   current: SummaryResult,
   instruction: string
@@ -405,48 +434,65 @@ function applyLocalAssistantInstruction(
   const updatedInProgress = [...current.inProgress];
   const updatedPrs = [...current.prs];
 
-  // 1. Move item commands: e.g. "move item 1 to in-progress"
-  const moveMatch = lower.match(/move\s+(?:item|task)?\s*(\d+)\s+to\s+(in-?progress|completed|prs?)/i);
-  if (moveMatch) {
-    const itemNum = parseInt(moveMatch[1], 10) - 1;
-    const target = moveMatch[2].startsWith("in")
-      ? "inProgress"
-      : moveMatch[2].startsWith("pr")
-      ? "prs"
-      : "completed";
+  // 1. Movement commands: e.g. "move 2nd pr to in progress", "move item 1 to in-progress"
+  if (lower.includes("move")) {
+    const targetIsInProgress = lower.includes("in progress") || lower.includes("in-progress");
+    const targetIsPr = lower.includes("to pr") || lower.includes("to prs");
+    const targetIsCompleted = lower.includes("to completed");
 
-    let movedItem = "";
-    if (itemNum >= 0 && itemNum < updatedCompleted.length) {
-      movedItem = updatedCompleted.splice(itemNum, 1)[0];
-    } else if (itemNum >= 0 && itemNum < updatedInProgress.length) {
-      movedItem = updatedInProgress.splice(itemNum, 1)[0];
+    const targetSection = targetIsInProgress ? "inProgress" : targetIsPr ? "prs" : "completed";
+
+    const isSourcePr = lower.includes("pr");
+    const isSourceInProgress = lower.includes("in progress") || lower.includes("in-progress");
+
+    let sourceArray = isSourcePr ? updatedPrs : isSourceInProgress ? updatedInProgress : updatedCompleted;
+    if (sourceArray.length === 0) sourceArray = updatedCompleted;
+
+    const num = parseOrdinalOrNumber(lower);
+    if (num && num >= 1 && num <= sourceArray.length) {
+      const idx = num - 1;
+      const movedItem = sourceArray.splice(idx, 1)[0];
+      if (movedItem) {
+        if (targetSection === "inProgress") updatedInProgress.push(movedItem);
+        else if (targetSection === "prs") updatedPrs.push(movedItem);
+        else updatedCompleted.push(movedItem);
+      }
     }
 
-    if (movedItem) {
-      if (target === "inProgress") updatedInProgress.push(movedItem);
-      else if (target === "prs") updatedPrs.push(movedItem);
-      else updatedCompleted.push(movedItem);
+    const devs = current.developers?.map((d) => ({
+      ...d,
+      completed: [...d.completed],
+      inProgress: [...d.inProgress],
+      prs: [...d.prs],
+    }));
+
+    return { completed: updatedCompleted, inProgress: updatedInProgress, prs: updatedPrs, developers: devs };
+  }
+
+  // 2. Delete / Remove commands: e.g. "delete 2nd pr", "remove item 1"
+  if (lower.includes("delete") || lower.includes("remove")) {
+    const isSourcePr = lower.includes("pr");
+    const isSourceInProgress = lower.includes("in progress") || lower.includes("in-progress");
+
+    let sourceArray = isSourcePr ? updatedPrs : isSourceInProgress ? updatedInProgress : updatedCompleted;
+    const num = parseOrdinalOrNumber(lower);
+    if (num && num >= 1 && num <= sourceArray.length) {
+      sourceArray.splice(num - 1, 1);
     }
     return { completed: updatedCompleted, inProgress: updatedInProgress, prs: updatedPrs };
   }
 
-  // 2. Delete / Remove commands: e.g. "delete item 1"
-  const deleteMatch = lower.match(/(?:delete|remove)\s+(?:item|task)?\s*(\d+)/i);
-  if (deleteMatch) {
-    const itemNum = parseInt(deleteMatch[1], 10) - 1;
-    if (itemNum >= 0 && itemNum < updatedCompleted.length) {
-      updatedCompleted.splice(itemNum, 1);
-    }
-    return { completed: updatedCompleted, inProgress: updatedInProgress, prs: updatedPrs };
-  }
-
-  // 3. Edit / Rephrase specific item: e.g. "change item 1 to XYZ"
-  const editMatch = lower.match(/(?:rephrase|change|edit|update)\s+(?:item|task)?\s*(\d+)\s+(?:to|as)\s+(.+)/i);
-  if (editMatch) {
-    const itemNum = parseInt(editMatch[1], 10) - 1;
-    const newText = editMatch[2].trim();
-    if (itemNum >= 0 && itemNum < updatedCompleted.length) {
-      updatedCompleted[itemNum] = newText.charAt(0).toUpperCase() + newText.slice(1);
+  // 3. Edit / Rephrase specific item: e.g. "change 2nd pr to XYZ"
+  if (lower.includes("rephrase") || lower.includes("change") || lower.includes("edit") || lower.includes("update")) {
+    const editMatch = lower.match(/(?:rephrase|change|edit|update)\s+(?:item|task|pr)?\s*(\d+(?:st|nd|rd|th)?)\s+(?:to|as)\s+(.+)/i);
+    if (editMatch) {
+      const num = parseOrdinalOrNumber(editMatch[1]);
+      const newText = editMatch[2].trim();
+      const isSourcePr = lower.includes("pr");
+      let sourceArray = isSourcePr ? updatedPrs : updatedCompleted;
+      if (num && num >= 1 && num <= sourceArray.length) {
+        sourceArray[num - 1] = newText.charAt(0).toUpperCase() + newText.slice(1);
+      }
     }
     return { completed: updatedCompleted, inProgress: updatedInProgress, prs: updatedPrs };
   }
