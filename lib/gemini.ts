@@ -392,7 +392,7 @@ USER INSTRUCTION FOR ASSISTANT:
     }
   }
 
-  // Fallback local modification for simple instructions if offline/no key
+  // Fallback local modification for simple instructions if offline/no key/rate-limited
   return applyLocalAssistantInstruction(currentSummary, instruction);
 }
 
@@ -400,15 +400,60 @@ function applyLocalAssistantInstruction(
   current: SummaryResult,
   instruction: string
 ): SummaryResult {
-  const lower = instruction.toLowerCase();
-  const shorten = (s: string) => (s.length > 55 ? s.slice(0, 52) + "..." : s);
-  const formalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
-
+  const lower = instruction.toLowerCase().trim();
   const updatedCompleted = [...current.completed];
   const updatedInProgress = [...current.inProgress];
   const updatedPrs = [...current.prs];
 
+  // 1. Move item commands: e.g. "move item 1 to in-progress"
+  const moveMatch = lower.match(/move\s+(?:item|task)?\s*(\d+)\s+to\s+(in-?progress|completed|prs?)/i);
+  if (moveMatch) {
+    const itemNum = parseInt(moveMatch[1], 10) - 1;
+    const target = moveMatch[2].startsWith("in")
+      ? "inProgress"
+      : moveMatch[2].startsWith("pr")
+      ? "prs"
+      : "completed";
+
+    let movedItem = "";
+    if (itemNum >= 0 && itemNum < updatedCompleted.length) {
+      movedItem = updatedCompleted.splice(itemNum, 1)[0];
+    } else if (itemNum >= 0 && itemNum < updatedInProgress.length) {
+      movedItem = updatedInProgress.splice(itemNum, 1)[0];
+    }
+
+    if (movedItem) {
+      if (target === "inProgress") updatedInProgress.push(movedItem);
+      else if (target === "prs") updatedPrs.push(movedItem);
+      else updatedCompleted.push(movedItem);
+    }
+    return { completed: updatedCompleted, inProgress: updatedInProgress, prs: updatedPrs };
+  }
+
+  // 2. Delete / Remove commands: e.g. "delete item 1"
+  const deleteMatch = lower.match(/(?:delete|remove)\s+(?:item|task)?\s*(\d+)/i);
+  if (deleteMatch) {
+    const itemNum = parseInt(deleteMatch[1], 10) - 1;
+    if (itemNum >= 0 && itemNum < updatedCompleted.length) {
+      updatedCompleted.splice(itemNum, 1);
+    }
+    return { completed: updatedCompleted, inProgress: updatedInProgress, prs: updatedPrs };
+  }
+
+  // 3. Edit / Rephrase specific item: e.g. "change item 1 to XYZ"
+  const editMatch = lower.match(/(?:rephrase|change|edit|update)\s+(?:item|task)?\s*(\d+)\s+(?:to|as)\s+(.+)/i);
+  if (editMatch) {
+    const itemNum = parseInt(editMatch[1], 10) - 1;
+    const newText = editMatch[2].trim();
+    if (itemNum >= 0 && itemNum < updatedCompleted.length) {
+      updatedCompleted[itemNum] = newText.charAt(0).toUpperCase() + newText.slice(1);
+    }
+    return { completed: updatedCompleted, inProgress: updatedInProgress, prs: updatedPrs };
+  }
+
+  // 4. Concise / Short
   if (lower.includes("concise") || lower.includes("short")) {
+    const shorten = (s: string) => (s.length > 55 ? s.slice(0, 52) + "..." : s);
     const c = updatedCompleted.map(shorten);
     const p = updatedInProgress.map(shorten);
     const pr = updatedPrs.map(shorten);
@@ -423,7 +468,9 @@ function applyLocalAssistantInstruction(
     return { completed: c, inProgress: p, prs: pr, developers: devs };
   }
 
+  // 5. Professional / Formal
   if (lower.includes("professional") || lower.includes("formal") || lower.includes("rephrase")) {
+    const formalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
     const c = updatedCompleted.map(formalize);
     const p = updatedInProgress.map(formalize);
     const pr = updatedPrs.map(formalize);
@@ -438,6 +485,7 @@ function applyLocalAssistantInstruction(
     return { completed: c, inProgress: p, prs: pr, developers: devs };
   }
 
+  // 6. Copy completed to PRs
   if (
     lower.includes("sync pr") ||
     lower.includes("pr same as completed") ||
