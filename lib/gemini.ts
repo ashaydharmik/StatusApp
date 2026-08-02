@@ -32,7 +32,7 @@ CRITICAL MULTI-DEVELOPER EXTRACTION RULES:
 3. UNLABELED TASKS DEFAULT TO COMPLETED:
    - If a developer's list has no explicit section header (like "In-progress:" or "PR:"), ALWAYS classify them under "completed".
 
-4. VERBATIM EXTRACTION (NO AUTO-REPHRASING):
+4. VERBATIM EXTRACTION (NO AUTO-REPHRASING IN INITIAL SUMMARY):
    - Extract the EXACT task descriptions and sentences as pasted by the user.
    - Do NOT rewrite, rephrase, summarize away, fix grammar, or change words during initial extraction.
    - Strip leading numbers (e.g., "1. ", "2. "), bullet symbols ("• ", "- "), or section headers ("Task update:"), but PRESERVE the exact sentence text verbatim.
@@ -62,12 +62,9 @@ const ASSISTANT_SYSTEM_PROMPT = `You are an AI assistant helping a user modify, 
 Your job is to apply the user's specific instruction to the existing summary JSON.
 
 RULES:
-1. Modify ONLY what the user asks for in their instruction (e.g. rephrasing tasks, making them concise, converting to formal tone, moving items between sections, adding a new item, deleting an item, or fixing grammar/typos).
-2. If the user asks to rephrase or rewrite, apply high quality developer tone adjustments while preserving the core technical details.
-3. Maintain logical categories:
-   - "completed": finished tasks
-   - "inProgress": ongoing tasks
-   - "prs": pull requests
+1. Apply the user's request accurately (e.g. rephrasing tasks, making them concise, converting to formal tone, moving items between sections, adding a new item, deleting an item, or fixing grammar/typos).
+2. If rephrasing or shortening, preserve all technical meaning and details while making sentence structures clean and professional.
+3. Keep both top-level arrays ("completed", "inProgress", "prs") AND per-developer arrays ("developers") updated and in sync!
 4. NEVER place inProgress tasks in the "prs" array.
 5. Return ONLY a valid JSON object with the updated structure:
 {
@@ -125,9 +122,9 @@ function isPersonNameLine(line: string): boolean {
   const lower = trimmed.toLowerCase();
   if (taskKeywords.some((kw) => lower.includes(kw))) return false;
 
-  // Name pattern: 1 to 5 words starting with capital letters (e.g., Sravan Kumar Reddy Kummita)
+  // Name pattern: 2 to 5 words starting with capital letters (e.g., Sravan Kumar Reddy Kummita)
   const words = trimmed.split(/\s+/);
-  if (words.length >= 1 && words.length <= 5) {
+  if (words.length >= 2 && words.length <= 5) {
     const looksLikeName = words.every((w) => /^[A-Z][a-zA-Z'.-]*$/.test(w));
     if (looksLikeName) return true;
   }
@@ -145,27 +142,22 @@ function parseJsonSafely(text: string): SummaryResult | null {
     const parsed = JSON.parse(cleaned);
 
     const filterItems = (list: any[]) =>
-      Array.isArray(list)
-        ? list
-            .map(cleanItem)
-            .filter(Boolean)
-            .filter((item) => !isPersonNameLine(item))
-        : [];
+      Array.isArray(list) ? list.map(cleanItem).filter(Boolean) : [];
 
-    const developers: DeveloperSummary[] = Array.isArray(parsed.developers)
+    const developers: DeveloperSummary[] | undefined = Array.isArray(parsed.developers)
       ? parsed.developers.map((dev: any) => ({
           developerName: typeof dev.developerName === "string" ? dev.developerName : "Developer",
           completed: filterItems(dev.completed),
           inProgress: filterItems(dev.inProgress),
           prs: filterItems(dev.prs),
         }))
-      : [];
+      : undefined;
 
     return {
       completed: filterItems(parsed.completed),
       inProgress: filterItems(parsed.inProgress),
       prs: filterItems(parsed.prs),
-      developers: developers.length > 0 ? developers : undefined,
+      developers: developers && developers.length > 0 ? developers : undefined,
     };
   } catch {
     return null;
@@ -409,24 +401,62 @@ function applyLocalAssistantInstruction(
   instruction: string
 ): SummaryResult {
   const lower = instruction.toLowerCase();
-  const updated: SummaryResult = {
-    completed: [...current.completed],
-    inProgress: [...current.inProgress],
-    prs: [...current.prs],
-    developers: current.developers ? [...current.developers] : undefined,
-  };
+  const shorten = (s: string) => (s.length > 55 ? s.slice(0, 52) + "..." : s);
+  const formalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+
+  const updatedCompleted = [...current.completed];
+  const updatedInProgress = [...current.inProgress];
+  const updatedPrs = [...current.prs];
 
   if (lower.includes("concise") || lower.includes("short")) {
-    updated.completed = updated.completed.map((s) => (s.length > 60 ? s.slice(0, 57) + "..." : s));
-    updated.inProgress = updated.inProgress.map((s) => (s.length > 60 ? s.slice(0, 57) + "..." : s));
-    updated.prs = updated.prs.map((s) => (s.length > 60 ? s.slice(0, 57) + "..." : s));
-  } else if (lower.includes("professional") || lower.includes("formal")) {
-    updated.completed = updated.completed.map((s) => s.charAt(0).toUpperCase() + s.slice(1));
-    updated.inProgress = updated.inProgress.map((s) => s.charAt(0).toUpperCase() + s.slice(1));
-    updated.prs = updated.prs.map((s) => s.charAt(0).toUpperCase() + s.slice(1));
-  } else if (lower.includes("sync pr") || lower.includes("pr same as completed")) {
-    updated.prs = Array.from(new Set([...updated.prs, ...updated.completed]));
+    const c = updatedCompleted.map(shorten);
+    const p = updatedInProgress.map(shorten);
+    const pr = updatedPrs.map(shorten);
+
+    const devs = current.developers?.map((d) => ({
+      ...d,
+      completed: d.completed.map(shorten),
+      inProgress: d.inProgress.map(shorten),
+      prs: d.prs.map(shorten),
+    }));
+
+    return { completed: c, inProgress: p, prs: pr, developers: devs };
   }
 
-  return updated;
+  if (lower.includes("professional") || lower.includes("formal") || lower.includes("rephrase")) {
+    const c = updatedCompleted.map(formalize);
+    const p = updatedInProgress.map(formalize);
+    const pr = updatedPrs.map(formalize);
+
+    const devs = current.developers?.map((d) => ({
+      ...d,
+      completed: d.completed.map(formalize),
+      inProgress: d.inProgress.map(formalize),
+      prs: d.prs.map(formalize),
+    }));
+
+    return { completed: c, inProgress: p, prs: pr, developers: devs };
+  }
+
+  if (
+    lower.includes("sync pr") ||
+    lower.includes("pr same as completed") ||
+    /copy.*completed.*pr/i.test(lower) ||
+    /add.*completed.*pr/i.test(lower)
+  ) {
+    const pr = Array.from(new Set([...updatedPrs, ...updatedCompleted]));
+    const devs = current.developers?.map((d) => ({
+      ...d,
+      prs: Array.from(new Set([...d.prs, ...d.completed])),
+    }));
+
+    return { completed: updatedCompleted, inProgress: updatedInProgress, prs: pr, developers: devs };
+  }
+
+  return {
+    completed: updatedCompleted,
+    inProgress: updatedInProgress,
+    prs: updatedPrs,
+    developers: current.developers ? [...current.developers] : undefined,
+  };
 }
