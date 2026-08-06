@@ -20,6 +20,7 @@ CRITICAL MULTI-DEVELOPER EXTRACTION RULES:
 1. DETECT MULTIPLE DEVELOPERS SMARTLY:
    - Input may contain task updates from multiple developers.
    - If a developer states their name at the top of an update block (e.g., "Sravan Kumar", "Ashay Dharmik"), capture that developer's name for their section.
+   - If a developer header line includes words like "today's task updates", "daily status", "task updates", etc. (e.g., "Jonathan Pereira P today's task updates"), extract ONLY the developer's name ("Jonathan Pereira P") as developerName, and DO NOT treat the header line itself as a task item.
    - If an update block has NO person name provided, treat it as an un-named developer block ("General Update").
 
 2. INDEPENDENT PER-DEVELOPER PROCESSING:
@@ -55,7 +56,12 @@ Output ONLY a valid JSON object matching this exact format:
     }
   ]
 }
-Do not include markdown explanations outside the JSON.`;
+Do not include markdown explanations outside the JSON.
+
+7. COMBINED SECTION LABELS (Completed + PR dual placement):
+   - If a developer uses a combined label that contains BOTH a status word AND the word "PR" in any order (examples: "PR / Task Update:", "PR / Task Updates:", "PR & Task Update:", "Completed and PR:", "Completed/PR:", "Task Updates and PR:", "Done/PR:", "Updates and PR:", "Completed & PR:"), treat it as a dual-section label.
+   - Place ALL tasks listed under that combined label into BOTH the "completed" array AND the "prs" array for that developer (and in the top-level arrays as well).
+   - STRICT CONSTRAINT: NEVER apply this rule to "inProgress" tasks — only tasks that would normally go to "completed".`;
 
 const ASSISTANT_SYSTEM_PROMPT = `You are an AI assistant helping a user modify, rephrase, and refine their daily task summary result on demand.
 
@@ -86,7 +92,6 @@ Return ONLY a valid JSON object matching the exact structure:
 }
 Do not include any explanation or markdown outside the JSON.`;
 
-// List of models to try in sequence if rate-limited or quota-exceeded
 const MODELS = [
   "gemini-flash-latest",
   "gemini-flash-lite-latest",
@@ -104,43 +109,53 @@ function cleanItem(item: string): string {
     .trim();
 }
 
-function isPersonNameLine(line: string): boolean {
+const DEV_HEADER_SUFFIX_REGEX =
+  /^(.*?)\s*(?:[-:|(\[\s]*\b(?:today'?s?\s*(?:task\s*)?updates?|daily\s*(?:task\s*)?updates?|task\s*updates?|status\s*updates?|updates?|tasks?)\b[ -:|)\]]*)$/i;
+
+function extractDeveloperNameHeader(line: string): string | null {
   const trimmed = line.trim();
-  if (!trimmed) return false;
+  if (!trimmed) return null;
 
-  // Not a name if it starts with numbers or bullet points
-  if (/^[\d+.\-•*]/.test(trimmed)) return false;
+  if (/^[\d+.\-•*]/.test(trimmed)) return null;
 
-  // Not a name if it matches known section headers
   if (
     /^(task update|completed|today's update|done|tasks|updates|in progress|in-progress|ongoing|pending|pr|prs|pull request|pull requests):?/i.test(
       trimmed
     )
   ) {
-    return false;
+    return null;
   }
 
-  // Not a name if it matches PR same as updates phrases
-  if (/pr\s+(as\s+)?(same|changes)/i.test(trimmed)) return false;
+  if (/pr\s+(as\s+)?(same|changes)/i.test(trimmed)) return null;
 
-  // Common technical / task verbs and keywords indicating task description
   const taskKeywords = [
     "worked", "updated", "integrated", "fixed", "implemented", "added", "testing",
     "created", "mapping", "alignment", "changes", "flow", "bug", "fixes", "workflow",
     "excel", "api", "apis", "ui", "kpi", "form", "dropdown", "modal", "appraisal",
     "recommendation", "details", "page", "button", "service", "table", "grid", "issue"
   ];
-  const lower = trimmed.toLowerCase();
-  if (taskKeywords.some((kw) => lower.includes(kw))) return false;
 
-  // Name pattern: 2 to 5 words starting with capital letters (e.g., Sravan Kumar Reddy Kummita)
-  const words = trimmed.split(/\s+/);
-  if (words.length >= 2 && words.length <= 5) {
-    const looksLikeName = words.every((w) => /^[A-Z][a-zA-Z'.-]*$/.test(w));
-    if (looksLikeName) return true;
+  let candidate = trimmed;
+  const suffixMatch = trimmed.match(DEV_HEADER_SUFFIX_REGEX);
+  if (suffixMatch && suffixMatch[1]) {
+    candidate = suffixMatch[1].trim();
   }
 
-  return false;
+  if (!candidate) return null;
+  const lowerCand = candidate.toLowerCase();
+  if (taskKeywords.some((kw) => lowerCand.includes(kw))) return null;
+
+  const words = candidate.split(/\s+/);
+  if (words.length >= 2 && words.length <= 5) {
+    const looksLikeName = words.every((w) => /^[A-Z][a-zA-Z'.-]*$/.test(w));
+    if (looksLikeName) return candidate;
+  }
+
+  return null;
+}
+
+function isPersonNameLine(line: string): boolean {
+  return extractDeveloperNameHeader(line) !== null;
 }
 
 function parseJsonSafely(text: string): SummaryResult | null {
@@ -175,11 +190,9 @@ function parseJsonSafely(text: string): SummaryResult | null {
   }
 }
 
-/**
- * Intelligent Local Rule-Based Fallback Parser
- * Smartly segregates tasks by developer when names are provided or unlabeled blocks appear.
- * Preserves EXACT sentences and strictly enforces independent PR rules per developer.
- */
+const COMBINED_COMPLETED_PR_REGEX =
+  /^(?:(?:completed|task\s*updates?|done|updates?)\s*(?:and|[\/&+])\s*pr|pr\s*(?:and|[\/&+])\s*(?:task\s*updates?|completed|done|updates?|tasks?)):?/i;
+
 export function parseLocalFallback(rawText: string): SummaryResult {
   const lines = rawText.split(/\r?\n/);
 
@@ -200,14 +213,28 @@ export function parseLocalFallback(rawText: string): SummaryResult {
     prSameAsUpdatesDetected: false,
   };
 
-  let currentSection: "completed" | "inProgress" | "prs" = "completed";
+  let currentSection: "completed" | "inProgress" | "prs" | "completedAndPr" = "completed";
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim();
-    if (!line) continue;
+    if (!line) {
+      let nextLine = "";
+      for (let j = i + 1; j < lines.length; j++) {
+        if (lines[j].trim()) {
+          nextLine = lines[j].trim();
+          break;
+        }
+      }
+      if (nextLine && !/^[\d+.\-•*]/.test(nextLine)) {
+        if (currentSection === "prs" || currentSection === "completedAndPr") {
+          currentSection = "completed";
+        }
+      }
+      continue;
+    }
 
-    // Check for developer/person name line -> start a new developer block
-    if (isPersonNameLine(line)) {
+    const devName = extractDeveloperNameHeader(line);
+    if (devName) {
       if (
         currentBlock.completed.length > 0 ||
         currentBlock.inProgress.length > 0 ||
@@ -216,7 +243,7 @@ export function parseLocalFallback(rawText: string): SummaryResult {
         devBlocks.push(currentBlock);
       }
       currentBlock = {
-        developerName: cleanItem(line),
+        developerName: devName,
         completed: [],
         inProgress: [],
         prs: [],
@@ -226,7 +253,19 @@ export function parseLocalFallback(rawText: string): SummaryResult {
       continue;
     }
 
-    // Check for section headers
+    if (COMBINED_COMPLETED_PR_REGEX.test(line)) {
+      currentSection = "completedAndPr";
+      const rest = line.replace(COMBINED_COMPLETED_PR_REGEX, "").trim();
+      if (rest) {
+        const cleaned = cleanItem(rest);
+        if (cleaned && !isPersonNameLine(cleaned)) {
+          if (!currentBlock.completed.includes(cleaned)) currentBlock.completed.push(cleaned);
+          if (!currentBlock.prs.includes(cleaned)) currentBlock.prs.push(cleaned);
+        }
+      }
+      continue;
+    }
+
     if (/^(in progress|in-progress|ongoing|pending):?/i.test(line)) {
       currentSection = "inProgress";
       const rest = line.replace(/^(in progress|in-progress|ongoing|pending):?/i, "").trim();
@@ -260,13 +299,11 @@ export function parseLocalFallback(rawText: string): SummaryResult {
       continue;
     }
 
-    // Check standalone line "pr same as updates" or "pr changes same as above" or similar
     if (/pr\s+.*same\s+as/i.test(line) || /^pr\s*-\s*same/i.test(line)) {
       currentBlock.prSameAsUpdatesDetected = true;
       continue;
     }
 
-    // Regular line item - preserve exact text minus leading bullet/numbering
     const cleaned = cleanItem(line);
     if (!cleaned || isPersonNameLine(cleaned)) continue;
 
@@ -276,10 +313,12 @@ export function parseLocalFallback(rawText: string): SummaryResult {
       currentBlock.inProgress.push(cleaned);
     } else if (currentSection === "prs") {
       currentBlock.prs.push(cleaned);
+    } else if (currentSection === "completedAndPr") {
+      if (!currentBlock.completed.includes(cleaned)) currentBlock.completed.push(cleaned);
+      if (!currentBlock.prs.includes(cleaned)) currentBlock.prs.push(cleaned);
     }
   }
 
-  // Push final block
   if (
     currentBlock.completed.length > 0 ||
     currentBlock.inProgress.length > 0 ||
@@ -288,12 +327,33 @@ export function parseLocalFallback(rawText: string): SummaryResult {
     devBlocks.push(currentBlock);
   }
 
-  // Process per-developer PR rules & aggregate
+  const mergedMap = new Map<string, DevBlock>();
+  for (const block of devBlocks) {
+    const key = block.developerName.trim().toLowerCase();
+    if (!mergedMap.has(key)) {
+      mergedMap.set(key, {
+        developerName: block.developerName,
+        completed: [...block.completed],
+        inProgress: [...block.inProgress],
+        prs: [...block.prs],
+        prSameAsUpdatesDetected: block.prSameAsUpdatesDetected,
+      });
+    } else {
+      const existing = mergedMap.get(key)!;
+      existing.completed.push(...block.completed);
+      existing.inProgress.push(...block.inProgress);
+      existing.prs.push(...block.prs);
+      if (block.prSameAsUpdatesDetected) existing.prSameAsUpdatesDetected = true;
+    }
+  }
+
+  const mergedDevBlocks = Array.from(mergedMap.values());
+
   const allCompleted: string[] = [];
   const allInProgress: string[] = [];
   const allPrs: string[] = [];
 
-  const developerSummaries: DeveloperSummary[] = devBlocks.map((block, idx) => {
+  const developerSummaries: DeveloperSummary[] = mergedDevBlocks.map((block, idx) => {
     const devCompleted = Array.from(new Set(block.completed));
     const devInProgress = Array.from(new Set(block.inProgress));
     const devPrs = Array.from(new Set(block.prs));
@@ -311,7 +371,7 @@ export function parseLocalFallback(rawText: string): SummaryResult {
     const displayName =
       block.developerName !== "General Update"
         ? block.developerName
-        : devBlocks.length > 1
+        : mergedDevBlocks.length > 1
         ? `Developer ${idx + 1}`
         : "General Update";
 
