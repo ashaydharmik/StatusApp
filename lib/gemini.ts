@@ -61,7 +61,12 @@ Do not include markdown explanations outside the JSON.
 7. COMBINED SECTION LABELS (Completed + PR dual placement):
    - If a developer uses a combined label that contains BOTH a status word AND the word "PR" in any order (examples: "PR / Task Update:", "PR / Task Updates:", "PR & Task Update:", "Completed and PR:", "Completed/PR:", "Task Updates and PR:", "Done/PR:", "Updates and PR:", "Completed & PR:"), treat it as a dual-section label.
    - Place ALL tasks listed under that combined label into BOTH the "completed" array AND the "prs" array for that developer (and in the top-level arrays as well).
-   - STRICT CONSTRAINT: NEVER apply this rule to "inProgress" tasks — only tasks that would normally go to "completed".`;
+   - STRICT CONSTRAINT: NEVER apply this rule to "inProgress" tasks — only tasks that would normally go to "completed".
+
+8. EDGE CASES: CHECKBOXES, DUMMY PLACEHOLDERS, & PR URLS:
+   - Strip markdown checkbox syntax like "- [x]", "* [ ]", "[x]" and leading bullet markers.
+   - EXCLUDE dummy placeholder lines such as "PRs: None", "In Progress: N/A", "Nil", "No PRs", "Not applicable", "None for today". Do NOT create task entries for dummy placeholder strings.
+   - PRESERVE GitHub/GitLab PR URLs (e.g., https://github.com/...) and PR numbers (e.g., PR #123) verbatim without removing PR numbers or links.`;
 
 const ASSISTANT_SYSTEM_PROMPT = `You are an AI assistant helping a user modify, rephrase, and refine their daily task summary result on demand.
 
@@ -102,22 +107,57 @@ const MODELS = [
   "gemini-2.0-flash",
 ];
 
-function cleanItem(item: string): string {
+export function cleanItem(item: string): string {
   if (typeof item !== "string") return "";
-  return item
-    .replace(/^[\d+.\-•*\s]+/, "")
-    .trim();
+  let res = item.trim();
+  // Remove markdown checkbox syntax like - [x] or * [ ] or [x]
+  res = res.replace(/^(?:[-*+]\s*)?\[[ xX_]\]\s*/, "");
+  // Remove leading serial numbers, bullets, dots, dashes, letter bullets (e.g. 1., 1.1, a), (1))
+  res = res.replace(/^(?:\d+(?:\.\d+)*[\.\)]|\([a-z\d]+\)|[a-z][\.\)]|[-•*+])\s*/i, "");
+  // Strip secondary bullet symbols if any e.g. "1. - "
+  res = res.replace(/^[-•*+]\s*/, "");
+  return res.trim();
+}
+
+export function isDummyPlaceholder(item: string): boolean {
+  if (!item) return true;
+  const cleaned = item.trim().toLowerCase().replace(/[^\w\s]/g, "");
+  const dummyWords = [
+    "none",
+    "na",
+    "nil",
+    "no pr",
+    "no prs",
+    "nopr",
+    "noprs",
+    "no updates",
+    "no task",
+    "no tasks",
+    "nothing",
+    "not applicable",
+    "none for today",
+    "no prs today",
+    "no pr today",
+    "n a",
+    "nil for today",
+    "same as above",
+  ];
+  if (dummyWords.includes(cleaned)) return true;
+  if (cleaned.length <= 1) return true;
+  return false;
 }
 
 const DEV_HEADER_SUFFIX_REGEX =
   /^(.*?)\s*(?:[-:|(\[\s]*\b(?:today'?s?\s*(?:task\s*)?updates?|daily\s*(?:task\s*)?updates?|task\s*updates?|status\s*updates?|updates?|tasks?)\b[ -:|)\]]*)$/i;
 
 function extractDeveloperNameHeader(line: string): string | null {
-  const trimmed = line.trim();
+  let trimmed = line.trim();
   if (!trimmed) return null;
 
+  // Ignore lines starting with numbers/bullets
   if (/^[\d+.\-•*]/.test(trimmed)) return null;
 
+  // Ignore standard section headers
   if (
     /^(task update|completed|today's update|done|tasks|updates|in progress|in-progress|ongoing|pending|pr|prs|pull request|pull requests):?/i.test(
       trimmed
@@ -127,6 +167,13 @@ function extractDeveloperNameHeader(line: string): string | null {
   }
 
   if (/pr\s+(as\s+)?(same|changes)/i.test(trimmed)) return null;
+
+  // Clean parenthetical roles, titles, or brackets e.g. "Sravan (Backend Lead)" -> "Sravan"
+  trimmed = trimmed
+    .replace(/\s*\([^)]*\)/g, "")
+    .replace(/\s*\[[^\]]*\]/g, "")
+    .replace(/:\s*$/, "")
+    .trim();
 
   const taskKeywords = [
     "worked", "updated", "integrated", "fixed", "implemented", "added", "testing",
@@ -146,9 +193,14 @@ function extractDeveloperNameHeader(line: string): string | null {
   if (taskKeywords.some((kw) => lowerCand.includes(kw))) return null;
 
   const words = candidate.split(/\s+/);
-  if (words.length >= 2 && words.length <= 5) {
-    const looksLikeName = words.every((w) => /^[A-Z][a-zA-Z'.-]*$/.test(w));
-    if (looksLikeName) return candidate;
+  if (words.length >= 1 && words.length <= 5) {
+    const looksLikeName = words.every((w) => /^[A-Z0-9a-z'.-]+$/.test(w));
+    if (looksLikeName && candidate.length >= 3) {
+      if (candidate.includes("@")) {
+        return candidate.split("@")[0];
+      }
+      return candidate;
+    }
   }
 
   return null;
@@ -168,7 +220,11 @@ function parseJsonSafely(text: string): SummaryResult | null {
     const parsed = JSON.parse(cleaned);
 
     const filterItems = (list: any[]) =>
-      Array.isArray(list) ? list.map(cleanItem).filter(Boolean) : [];
+      Array.isArray(list)
+        ? list
+            .map(cleanItem)
+            .filter((item) => Boolean(item) && !isDummyPlaceholder(item))
+        : [];
 
     const developers: DeveloperSummary[] | undefined = Array.isArray(parsed.developers)
       ? parsed.developers.map((dev: any) => ({
@@ -258,7 +314,7 @@ export function parseLocalFallback(rawText: string): SummaryResult {
       const rest = line.replace(COMBINED_COMPLETED_PR_REGEX, "").trim();
       if (rest) {
         const cleaned = cleanItem(rest);
-        if (cleaned && !isPersonNameLine(cleaned)) {
+        if (cleaned && !isPersonNameLine(cleaned) && !isDummyPlaceholder(cleaned)) {
           if (!currentBlock.completed.includes(cleaned)) currentBlock.completed.push(cleaned);
           if (!currentBlock.prs.includes(cleaned)) currentBlock.prs.push(cleaned);
         }
@@ -271,7 +327,7 @@ export function parseLocalFallback(rawText: string): SummaryResult {
       const rest = line.replace(/^(in progress|in-progress|ongoing|pending):?/i, "").trim();
       if (rest) {
         const cleaned = cleanItem(rest);
-        if (cleaned && !isPersonNameLine(cleaned)) currentBlock.inProgress.push(cleaned);
+        if (cleaned && !isPersonNameLine(cleaned) && !isDummyPlaceholder(cleaned)) currentBlock.inProgress.push(cleaned);
       }
       continue;
     }
@@ -284,7 +340,7 @@ export function parseLocalFallback(rawText: string): SummaryResult {
         currentBlock.prSameAsUpdatesDetected = true;
       } else if (rest) {
         const cleaned = cleanItem(rest);
-        if (cleaned && !isPersonNameLine(cleaned)) currentBlock.prs.push(cleaned);
+        if (cleaned && !isPersonNameLine(cleaned) && !isDummyPlaceholder(cleaned)) currentBlock.prs.push(cleaned);
       }
       continue;
     }
@@ -294,7 +350,7 @@ export function parseLocalFallback(rawText: string): SummaryResult {
       const rest = line.replace(/^(task update|completed|today's update|done|tasks|updates):?/i, "").trim();
       if (rest) {
         const cleaned = cleanItem(rest);
-        if (cleaned && !isPersonNameLine(cleaned)) currentBlock.completed.push(cleaned);
+        if (cleaned && !isPersonNameLine(cleaned) && !isDummyPlaceholder(cleaned)) currentBlock.completed.push(cleaned);
       }
       continue;
     }
@@ -305,7 +361,7 @@ export function parseLocalFallback(rawText: string): SummaryResult {
     }
 
     const cleaned = cleanItem(line);
-    if (!cleaned || isPersonNameLine(cleaned)) continue;
+    if (!cleaned || isPersonNameLine(cleaned) || isDummyPlaceholder(cleaned)) continue;
 
     if (currentSection === "completed") {
       currentBlock.completed.push(cleaned);

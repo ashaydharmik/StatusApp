@@ -23,6 +23,8 @@ import {
   Users,
   Layers,
   User,
+  GripVertical,
+  CopyPlus,
 } from "lucide-react";
 import { SummaryResult, DeveloperSummary } from "@/lib/gemini";
 
@@ -80,6 +82,13 @@ interface EditableSectionProps {
   onDeleteItem: (section: "completed" | "inProgress" | "prs", index: number) => void;
   onEditItem: (section: "completed" | "inProgress" | "prs", index: number, newText: string) => void;
   onAddItem: (section: "completed" | "inProgress" | "prs", text: string) => void;
+  onDuplicateItem: (section: "completed" | "inProgress" | "prs", index: number) => void;
+  onReorderItems: (
+    sourceSection: "completed" | "inProgress" | "prs",
+    sourceIndex: number,
+    targetSection: "completed" | "inProgress" | "prs",
+    targetIndex: number
+  ) => void;
 }
 
 function EditableSection({
@@ -93,11 +102,16 @@ function EditableSection({
   onDeleteItem,
   onEditItem,
   onAddItem,
+  onDuplicateItem,
+  onReorderItems,
 }: EditableSectionProps) {
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [editText, setEditText] = useState("");
   const [isAdding, setIsAdding] = useState(false);
   const [newItemText, setNewItemText] = useState("");
+  const [draggingIndex, setDraggingIndex] = useState<number | null>(null);
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+  const [isSectionDragOver, setIsSectionDragOver] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -127,7 +141,31 @@ function EditableSection({
   };
 
   return (
-    <div className="animate-fade-in space-y-2">
+    <div
+      onDragOver={(e) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "move";
+        if (!isSectionDragOver) setIsSectionDragOver(true);
+      }}
+      onDragLeave={() => setIsSectionDragOver(false)}
+      onDrop={(e) => {
+        e.preventDefault();
+        setIsSectionDragOver(false);
+        try {
+          const dataStr = e.dataTransfer.getData("text/plain");
+          if (!dataStr) return;
+          const data = JSON.parse(dataStr);
+          if (data && typeof data.index === "number" && data.sectionKey) {
+            onReorderItems(data.sectionKey, data.index, sectionKey, items.length);
+          }
+        } catch {
+          // ignore drop errors
+        }
+      }}
+      className={`animate-fade-in space-y-2 p-2 rounded-2xl transition-all duration-200 ${
+        isSectionDragOver ? "bg-indigo-500/10 border border-indigo-500/30 ring-2 ring-indigo-500/20" : ""
+      }`}
+    >
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <div className={`w-6 h-6 sm:w-7 sm:h-7 rounded-lg flex items-center justify-center ${iconBg}`}>
@@ -152,8 +190,57 @@ function EditableSection({
         {items.map((item, i) => (
           <li
             key={i}
-            className="group relative flex items-start gap-2 sm:gap-2.5 p-2 rounded-xl hover:bg-white/[0.04] transition-all border border-transparent hover:border-white/10"
+            draggable={editingIndex !== i}
+            onDragStart={(e) => {
+              e.dataTransfer.setData("text/plain", JSON.stringify({ sectionKey, index: i }));
+              e.dataTransfer.effectAllowed = "move";
+              setDraggingIndex(i);
+            }}
+            onDragEnd={() => {
+              setDraggingIndex(null);
+              setDragOverIndex(null);
+            }}
+            onDragOver={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              e.dataTransfer.dropEffect = "move";
+              if (dragOverIndex !== i) setDragOverIndex(i);
+            }}
+            onDragLeave={() => {
+              if (dragOverIndex === i) setDragOverIndex(null);
+            }}
+            onDrop={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              setDragOverIndex(null);
+              setDraggingIndex(null);
+              try {
+                const dataStr = e.dataTransfer.getData("text/plain");
+                if (!dataStr) return;
+                const data = JSON.parse(dataStr);
+                if (data && typeof data.index === "number" && data.sectionKey) {
+                  onReorderItems(data.sectionKey, data.index, sectionKey, i);
+                }
+              } catch {
+                // ignore
+              }
+            }}
+            className={`group relative flex items-start gap-1.5 sm:gap-2 p-2 rounded-xl transition-all border ${
+              dragOverIndex === i
+                ? "bg-indigo-500/20 border-indigo-500/60 shadow-lg scale-[1.01]"
+                : draggingIndex === i
+                ? "opacity-30 border-dashed border-indigo-400/50"
+                : "hover:bg-white/[0.04] border-transparent hover:border-white/10"
+            }`}
           >
+            {/* Drag Handle Icon */}
+            <div
+              className="cursor-grab active:cursor-grabbing text-slate-600 hover:text-indigo-400 mt-1 transition-colors flex-shrink-0"
+              title="Drag to reorder or transfer item"
+            >
+              <GripVertical className="w-3.5 h-3.5" />
+            </div>
+
             {/* Automatic Serial Index Badge */}
             <span
               className={`flex-shrink-0 w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold mt-0.5 ${numberClass}`}
@@ -190,10 +277,10 @@ function EditableSection({
                 </button>
               </div>
             ) : (
-              <div className="flex-1 flex items-start justify-between gap-2">
+              <div className="flex-1 flex items-start justify-between gap-2 min-w-0">
                 <span
                   onClick={() => handleStartEdit(i, item)}
-                  className="text-xs sm:text-sm text-slate-300 leading-relaxed cursor-pointer hover:text-slate-100 transition-colors"
+                  className="text-xs sm:text-sm text-slate-300 leading-relaxed cursor-pointer hover:text-slate-100 transition-colors break-words flex-1"
                   title="Click to edit item"
                 >
                   {item}
@@ -201,6 +288,13 @@ function EditableSection({
 
                 {/* Inline item action controls - visible on touch devices and hover on desktop */}
                 <div className="opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity flex items-center gap-0.5 flex-shrink-0">
+                  <button
+                    onClick={() => onDuplicateItem(sectionKey, i)}
+                    className="p-1.5 rounded-lg text-slate-400 hover:text-indigo-300 hover:bg-white/10 active:bg-white/20"
+                    title="Duplicate item (auto serial re-numbers list)"
+                  >
+                    <CopyPlus className="w-3.5 h-3.5" />
+                  </button>
                   <button
                     onClick={() => handleStartEdit(i, item)}
                     className="p-1.5 rounded-lg text-slate-400 hover:text-indigo-300 hover:bg-white/10 active:bg-white/20"
@@ -357,6 +451,48 @@ export default function TaskSummary({
       prs: [...currentSummary.prs],
     };
     newSummary[section].push(text);
+    updateSummaryState(newSummary);
+  };
+
+  const handleDuplicateItem = (section: "completed" | "inProgress" | "prs", index: number) => {
+    if (!currentSummary) return;
+    const newSummary: SummaryResult = {
+      ...currentSummary,
+      completed: [...currentSummary.completed],
+      inProgress: [...currentSummary.inProgress],
+      prs: [...currentSummary.prs],
+    };
+    const itemToDuplicate = newSummary[section][index];
+    if (itemToDuplicate !== undefined) {
+      newSummary[section].splice(index + 1, 0, itemToDuplicate);
+      updateSummaryState(newSummary);
+    }
+  };
+
+  const handleReorderItems = (
+    sourceSection: "completed" | "inProgress" | "prs",
+    sourceIndex: number,
+    targetSection: "completed" | "inProgress" | "prs",
+    targetIndex: number
+  ) => {
+    if (!currentSummary) return;
+
+    const newSummary: SummaryResult = {
+      ...currentSummary,
+      completed: [...currentSummary.completed],
+      inProgress: [...currentSummary.inProgress],
+      prs: [...currentSummary.prs],
+    };
+
+    const sourceList = newSummary[sourceSection];
+    if (!sourceList || sourceIndex < 0 || sourceIndex >= sourceList.length) return;
+
+    const [movedItem] = sourceList.splice(sourceIndex, 1);
+
+    const targetList = newSummary[targetSection];
+    let insertIndex = Math.min(Math.max(0, targetIndex), targetList.length);
+    targetList.splice(insertIndex, 0, movedItem);
+
     updateSummaryState(newSummary);
   };
 
@@ -714,6 +850,8 @@ export default function TaskSummary({
                   onDeleteItem={handleDeleteItem}
                   onEditItem={handleEditItem}
                   onAddItem={handleAddItem}
+                  onDuplicateItem={handleDuplicateItem}
+                  onReorderItems={handleReorderItems}
                 />
 
                 {/* In Progress */}
@@ -728,6 +866,8 @@ export default function TaskSummary({
                   onDeleteItem={handleDeleteItem}
                   onEditItem={handleEditItem}
                   onAddItem={handleAddItem}
+                  onDuplicateItem={handleDuplicateItem}
+                  onReorderItems={handleReorderItems}
                 />
 
                 {/* PR's */}
@@ -742,6 +882,8 @@ export default function TaskSummary({
                   onDeleteItem={handleDeleteItem}
                   onEditItem={handleEditItem}
                   onAddItem={handleAddItem}
+                  onDuplicateItem={handleDuplicateItem}
+                  onReorderItems={handleReorderItems}
                 />
               </div>
             )}
